@@ -166,13 +166,21 @@ def draw_significance_bars(
     ax: plt.Axes,
     pvals: pd.DataFrame,
     groups: List[str],
-    subgroups: Union[List[str], None],
+    subgroups: Optional[List[str]],
     above_mm: float = 2.0,
     bar_height_mm: float = 1.2,
     mm_step: float = 2.5,
     alpha: float = 0.05,
     box_plot_width_fraction: float = 0.8
 ):
+    """
+    Универсальная функция для рисования линий статистической значимости между группами и/или подгруппами
+    на графиках boxplot, поддерживающая любые имена столбцов в p-values и данных.
+    """
+
+    # ----------------------------------------
+    # 1. Вспомогательные: вычисление позиций на оси Y (максимальное значение графика)
+    # ----------------------------------------
     all_y_coords = []
     for patch in ax.patches:
         if hasattr(patch, "get_y") and hasattr(patch, "get_height"):
@@ -192,40 +200,71 @@ def draw_significance_bars(
     fig = ax.figure
     bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
     height_in = bbox.height
-    if height_in == 0: return
+    if height_in == 0:
+        return
     height_mm = height_in * 25.4
     mm_at_top_data = y_frac_top * height_mm
     mm_first_bar = mm_at_top_data + above_mm
-    occupied_ranges_at_level: dict[int, List[Tuple[float, float]]] = {}
+
+    # ----------------------------------------
+    # 2. Определение универсальных имён столбцов для групп и подгрупп
+    # ----------------------------------------
     pvals_to_draw = pvals[pvals['p'] < alpha].copy()
-    if pvals_to_draw.empty: return
+    if pvals_to_draw.empty:
+        return
 
-    pvals_to_draw['Кластер'] = pvals_to_draw['Кластер'].astype(str)
-    pvals_to_draw['Кластер.1'] = pvals_to_draw['Кластер.1'].astype(str)
-    if 'Группа' in pvals_to_draw.columns:
-        pvals_to_draw['Группа'] = pvals_to_draw['Группа'].astype(str)
-    if 'Группа.1' in pvals_to_draw.columns:
-        pvals_to_draw['Группа.1'] = pvals_to_draw['Группа.1'].astype(str)
+    # Автоматический поиск названий колонок для сравниваемых групп и подгрупп
+    group_cols = [col for col in pvals.columns if any(g in col for g in ['Кластер', 'Group', 'Группа', 'Подгруппы', 'Subgroup']) and not col.endswith('.1')]
+    group_cols_1 = [col for col in pvals.columns if col.endswith('.1') and any(g in col for g in ['Кластер', 'Group', 'Группа', 'Подгруппы', 'Subgroup'])]
+    if len(group_cols) == 0 or len(group_cols_1) == 0:
+        # Fallback: берем первые два не 'p' столбца
+        cols_ = [c for c in pvals.columns if c != 'p']
+        group_cols = [cols_[0]]
+        group_cols_1 = [cols_[1]]
 
+    main_group_col, main_group_col_1 = group_cols[0], group_cols_1[0]
+    subgroup_col = None
+    subgroup_col_1 = None
+
+    # Поиск подгруппы, если subgroups присутствует
+    if subgroups is not None:
+        # Названия для подгрупп: это любые оставшиеся столбцы, не совпадающие с группами и не p
+        rest_cols = [c for c in pvals.columns if c not in {main_group_col, main_group_col_1, 'p'}]
+        if rest_cols:
+            subgroup_col = rest_cols[0]
+            if len(rest_cols) > 1:
+                subgroup_col_1 = rest_cols[1]
+
+    # Приведение типов
+    for col in [main_group_col, main_group_col_1, subgroup_col, subgroup_col_1]:
+        if col is not None and col in pvals_to_draw.columns:
+            pvals_to_draw[col] = pvals_to_draw[col].astype(str)
+
+    # ----------------------------------------
+    # 3. Сборка всех баров с универсальным определением координат
+    # ----------------------------------------
+    bars_to_draw = []
     for _, row in pvals_to_draw.iterrows():
-        main_g1_name = row['Кластер']
-        main_g2_name = row['Кластер.1']
-        sub_g1_name = row.get('Группа', None)
-        if pd.isna(sub_g1_name) or sub_g1_name == 'nan': sub_g1_name = None
-        sub_g2_name = row.get('Группа.1', None)
-        if pd.isna(sub_g2_name) or sub_g2_name == 'nan': sub_g2_name = None
+        # Извлекаем группы
+        g1 = row[main_group_col]
+        g2 = row[main_group_col_1]
+        sg1 = row[subgroup_col] if subgroup_col and subgroup_col in row else None
+        sg2 = row[subgroup_col_1] if subgroup_col_1 and subgroup_col_1 in row else None
         p_val = row['p']
+
         current_x_coords = []
-        for main_g_name, sub_g_name in [(main_g1_name, sub_g1_name), (main_g2_name, sub_g2_name)]:
+        for main_g_name, sub_g_name in [(g1, sg1), (g2, sg2)]:
+            # Поиск индекса основной группы
             if main_g_name not in groups:
-                warnings.warn(f"Основная группа '{main_g_name}' не найдена в списке groups: {groups} (из данных Sheet1). Пропуск строки p-value: {row.to_dict()}")
+                warnings.warn(f"Основная группа '{main_g_name}' не найдена в списке groups: {groups}. Пропуск строки p-value: {row.to_dict()}")
                 current_x_coords.append(None)
                 break
             main_g_idx = groups.index(main_g_name)
+            # Поиск индекса подгруппы, если требуется
             if sub_g_name is not None and subgroups is not None and len(subgroups) > 0:
                 try:
                     subgroups_str_list = [str(sg) for sg in subgroups]
-                    sg_idx = subgroups_str_list.index(sub_g_name)
+                    sg_idx = subgroups_str_list.index(str(sub_g_name))
                     num_sg_total = len(subgroups_str_list)
                     if num_sg_total == 1:
                         x_coord = float(main_g_idx)
@@ -235,15 +274,35 @@ def draw_significance_bars(
                                    width_per_subgroup_slot * (sg_idx + 0.5))
                     current_x_coords.append(x_coord)
                 except ValueError:
-                    warnings.warn(f"Подгруппа '{sub_g_name}' из p-values не найдена в списке подгрупп из данных Sheet1: {subgroups_str_list}. Для '{main_g_name}' используется центр основной группы. Строка p-value: {row.to_dict()}")
+                    warnings.warn(f"Подгруппа '{sub_g_name}' не найдена в subgroups: {subgroups_str_list}. Для '{main_g_name}' используется центр основной группы. Строка p-value: {row.to_dict()}")
                     current_x_coords.append(float(main_g_idx))
             else:
                 current_x_coords.append(float(main_g_idx))
-        if None in current_x_coords or len(current_x_coords) != 2: continue
+        if None in current_x_coords or len(current_x_coords) != 2:
+            continue
         x1, x2 = current_x_coords[0], current_x_coords[1]
         if abs(x1 - x2) < 1e-6:
-            warnings.warn(f"Линия значимости имеет нулевую ширину (x1={x1}, x2={x2}). Возможно, из-за ненайденных подгрупп или сравнения группы с самой собой без указания подгрупп. Пропуск. Строка p-value: {row.to_dict()}")
+            warnings.warn(f"Линия значимости имеет нулевую ширину (x1={x1}, x2={x2}). Пропуск. Строка p-value: {row.to_dict()}")
             continue
+        width = abs(x2 - x1)
+        bars_to_draw.append({
+            "x1": x1,
+            "x2": x2,
+            "width": width,
+            "p_val": p_val
+        })
+
+    # ----------------------------------------
+    # 4. Сортировка баров: длинные — выше, короткие — ниже
+    # ----------------------------------------
+    bars_to_draw.sort(key=lambda d: d["width"], reverse=True)
+
+    # ----------------------------------------
+    # 5. Размещение баров по уровням и отрисовка
+    # ----------------------------------------
+    occupied_ranges_at_level: dict[int, List[Tuple[float, float]]] = {}
+    for bar in bars_to_draw:
+        x1, x2, p_val = bar["x1"], bar["x2"], bar["p_val"]
         bar_x_range = tuple(sorted((x1, x2)))
         chosen_level = 0
         while True:
@@ -253,13 +312,15 @@ def draw_significance_bars(
             epsilon = 1e-3
             for r_min, r_max in occupied_ranges_at_level[chosen_level]:
                 if max(bar_x_range[0], r_min) < min(bar_x_range[1], r_max) - epsilon:
-                    has_overlap = True; break
+                    has_overlap = True
+                    break
             if not has_overlap:
-                occupied_ranges_at_level[chosen_level].append(bar_x_range); break
+                occupied_ranges_at_level[chosen_level].append(bar_x_range)
+                break
             chosen_level += 1
             if chosen_level > 20:
-                warnings.warn(f"Превышено максимальное количество уровней (20) для линий значимости. Строка p-value: {row.to_dict()}")
-                occupied_ranges_at_level.setdefault(chosen_level -1 , []).append(bar_x_range)
+                warnings.warn(f"Превышено максимальное количество уровней (20) для линий значимости.")
+                occupied_ranges_at_level.setdefault(chosen_level - 1, []).append(bar_x_range)
                 break
         y_mm_for_bar = mm_first_bar + chosen_level * mm_step
         draw_significance_bar_abs(ax, (x1, x2), p_val, y_mm_for_bar, bar_height_mm=bar_height_mm, alpha=alpha)
@@ -273,7 +334,7 @@ def boxplot_builder(
         values_col_idx: int = 1,
         group_col_idx: int = 2,
         subgroup_col_idx: int = None,
-        figure_length_key: Literal['1', '3/2', '2', '3'] = '2',
+        figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
         figure_height_key: Literal['1', '3/2', '2', '3'] = '1'
 ):
 
@@ -431,9 +492,9 @@ def main():
 if __name__ == '__main__':
     main()
 
-    # version 3.1
+    # version 3.3
     # TODO: colors
     # TODO: s bars
     # TODO: pont shape stripplot
-    # TODO: округлить и редуцировать оси
+    # TODO: округлить и редуцировать оси (autoscale)
 
