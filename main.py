@@ -1,9 +1,9 @@
 import os
 import matplotlib.pyplot as plt
+import math
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.stats import mannwhitneyu
 from typing import Literal, Tuple, Union, List, Optional
 from matplotlib.ticker import MaxNLocator
 import warnings
@@ -76,12 +76,13 @@ def apply_axes_style(ax, xlabel, ylabel):
         labelpad=0,
         linespacing=0.8
     )
+    # autoscale
+    autoscale_yaxis(ax)
 
     # axes general style
-    ax.set_ylim(bottom=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
 
 
 # ======================================================================================================================
@@ -289,6 +290,52 @@ def draw_significance_bars(
         draw_significance_bar_abs(ax, (x1, x2), p_val, y_mm_for_bar, bar_height_mm=bar_height_mm, alpha=alpha)
 
 
+def autoscale_yaxis(ax, min_ticks=4, max_ticks=8):
+    """
+    Автоматически масштабирует ось Y и выставляет "красивые" тики с нужным количеством делений.
+    - Работает с любым диапазоном и любым форматом данных.
+    - Не допускает слишком частых или редких делений.
+    """
+
+    ax.set_ylim(0)
+    ymin, ymax = ax.get_ylim()
+    if ymax <= ymin:
+        ymax = ymin + 1
+    # Минимум округляем вниз, обычно 0 для boxplot
+    y_min = 0 if ymin < 0.05 * ymax else math.floor(ymin)
+    span = ymax - y_min
+
+    # Автовыбор шага деления
+    raw_step = span / max(min_ticks, 1)
+    # "Красивые" шаги
+    magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
+    nice_factors = np.array([1, 2, 2.5, 5, 10])
+    step_candidates = nice_factors * magnitude
+
+    for step in step_candidates:
+        ticks = np.arange(
+            math.floor(y_min / step) * step,
+            math.ceil(ymax / step) * step + step * 0.5,
+            step
+        )
+        print(ticks)
+        if min_ticks <= len(ticks) <= max_ticks:
+            break
+    else:
+        # fallback: просто делим на 6
+        step = max(raw_step, 1)
+        ticks = np.linspace(y_min, ymax, 4)
+
+    # Форматирование подписей
+    if step < 1:
+        ax.set_yticklabels([f"{tick:.2f}".rstrip('0').rstrip('.') for tick in ticks])
+    else:
+        ax.set_yticklabels([f"{int(tick)}" for tick in ticks])
+
+    ax.set_yticks(ticks)
+    ax.set_autoscaley_on(False)
+
+
 # ======================================================================================================================
 # PLOTTING FUNCTIONS
 # ======================================================================================================================
@@ -300,7 +347,6 @@ def boxplot_builder(
         figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
         figure_height_key: Literal['1', '3/2', '2', '3'] = '1'
 ):
-
     # Set style
     apply_font_style(plt.gca())
 
@@ -454,10 +500,11 @@ def main():
 if __name__ == '__main__':
     main()
 
-    # version 3.4
+    # version 3.5
+
+    # TODO: point shape stripplot
     # TODO: colors
-    # TODO: s bars
-    # TODO: pont shape stripplot
-    # TODO: округлить и редуцировать оси (autoscale)
+    # TODO: replace comma
     # TODO: подписи осей X могут не влезать
+
 
