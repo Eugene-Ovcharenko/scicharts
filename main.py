@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from typing import Literal, Tuple, Union, List, Optional
+from  matplotlib import collections
 from matplotlib.ticker import MaxNLocator
 import warnings
 warnings.filterwarnings("ignore")
@@ -54,8 +55,20 @@ def make_fig_ax(
     return fig, ax
 
 
+def set_color_style(
+        greyscale: False
+):
+    if greyscale:
+        palette_contrast = [(v, v, v) for v in np.linspace(0.7, 0.0, 5)]
+        color = palette_gradient = 'dimgray'
+    else:
+        palette_contrast = sns.color_palette('Set1')
+        color = sns.color_palette('Blues')[-1]
+
+    return palette_contrast, color
+
+
 def apply_font_style(ax):
-    plt.style.use('default')
     plt.rcParams.update({
         "font.family": "Times New Roman",
         "font.size": 12
@@ -82,7 +95,6 @@ def apply_axes_style(ax, xlabel, ylabel):
     # axes general style
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-
 
 
 # ======================================================================================================================
@@ -318,7 +330,6 @@ def autoscale_yaxis(ax, min_ticks=4, max_ticks=8):
             math.ceil(ymax / step) * step + step * 0.5,
             step
         )
-        print(ticks)
         if min_ticks <= len(ticks) <= max_ticks:
             break
     else:
@@ -394,97 +405,110 @@ def boxplot_builder(
         print(f"Data loading error - Sheet1: {e}")
         return  # Выход из функции
 
-    # Plot the figure
-    fig, ax = make_fig_ax(
-        length_key=figure_length_key,
-        height_key=figure_height_key
-    )
+    for flag in [False, True]:
+        palette_contrast, color = set_color_style(greyscale=flag)
+        basic_color_palette = [color] * len(groups)
+        palette = palette_contrast if subgroup_col_idx else basic_color_palette
 
-    # boxplot
-    df_box = df.copy()
-    for g, size in group_sizes.items():
-        if size < 5:
-            df_box.loc[df_box[group_col_name] == g, value_col_name] = np.nan
-    sns.boxplot(
-        data=df_box,
-        x=group_col_name,
-        y=value_col_name,
-        ax=ax,
-        hue=subgroup_idx,
-        order=groups,
-        hue_order=subgroups,
-        boxprops=dict(facecolor='none', edgecolor='black'),
-        whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
-        capprops=dict(color='black'),
-        medianprops=dict(color='black'),
-        flierprops=dict(marker='+', markerfacecolor='black', markeredgecolor='black', markersize=3),
-        showfliers=True,
-        legend=False,
-        color='white',
-        zorder=1
-    )
-
-    # stripplot
-    stripplot = sns.swarmplot(
-        data=df,
-        x=df.columns[group_col_idx],
-        y=df.columns[values_col_idx],
-        hue=subgroup_idx,
-        order=groups,
-        hue_order=subgroups,
-        dodge=stripplot_dodge,
-        palette="Set1",
-        legend=True,
-        size=3,
-        alpha=1,
-        ax=ax,
-        zorder=0)
-
-    # axes settings
-    n_groups = len(groups)
-    ax.set_xticks(np.arange(n_groups))
-    ax.set_xticklabels([str(g) for g in groups])
-    ax.set_xlim(-0.5, n_groups - 0.5)
-    apply_axes_style(
-        ax=ax,
-        xlabel=group_col_name,
-        ylabel=value_col_name
-    )
-
-    # Legend based on stripplot
-    if ax.get_legend() is not None:
-        ax.get_legend().remove()
-    handles, labels = stripplot.get_legend_handles_labels()
-    if '' in labels:
-        handles = handles[1:]
-        labels = labels[1:]
-    if handles and labels and len(handles) == len(labels):
-        fig.legend(
-            handles, labels,
-            loc='lower left',
-            bbox_to_anchor=(0, 0),
-            ncol=len(labels),
-            frameon=False,
-            fontsize=10,
-            markerscale=1.5,
-            handlelength=0.5,
-            handletextpad=0.1,
-            borderaxespad=0,
-            borderpad=0,
-            columnspacing=0.1
+        # Plot the figure
+        fig, ax = make_fig_ax(
+            length_key=figure_length_key,
+            height_key=figure_height_key
         )
 
-    # Draw significance bars for all significant pairs
-    draw_significance_bars(
-        ax,
-        pvals,
-        group_col_name,
-        subgroup_col_name
-    )
+        # boxplot
+        df_box = df.copy()
+        for g, size in group_sizes.items():
+            if size < 5:
+                df_box.loc[df_box[group_col_name] == g, value_col_name] = np.nan
+        sns.boxplot(
+            data=df_box,
+            x=group_col_name,
+            y=value_col_name,
+            ax=ax,
+            hue=subgroup_idx,
+            order=groups,
+            hue_order=subgroups,
+            boxprops=dict(facecolor='none', edgecolor='black'),
+            whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
+            capprops=dict(color='black'),
+            medianprops=dict(color='black'),
+            flierprops=dict(marker='+', markerfacecolor='black', markeredgecolor='black', markersize=3),
+            showfliers=True,
+            legend=False,
+            color='white',
+            zorder=1
+        )
 
-    save_file_path = os.path.splitext(file_path)[0] + '.png'
-    fig.savefig(save_file_path, dpi=300, transparent=False)
-    plt.close(fig)
+        swarm = sns.swarmplot(
+            data=df,
+            x=df.columns[group_col_idx],
+            y=df.columns[values_col_idx],
+            hue=subgroup_idx,
+            order=groups,
+            hue_order=subgroups,
+            marker='o',
+            dodge=stripplot_dodge,
+            palette=palette,
+            legend=True,
+            size=3,
+            alpha=0.7,
+            ax=ax,
+            zorder=0)
+
+        # axes settings
+        n_groups = len(groups)
+        ax.set_xticks(np.arange(n_groups))
+        ax.set_xticklabels([str(g) for g in groups])
+        ax.set_xlim(-0.5, n_groups - 0.5)
+        apply_axes_style(
+            ax=ax,
+            xlabel=group_col_name,
+            ylabel=value_col_name
+        )
+
+        # Clear preevious legend
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+            for lg in fig.legends:
+                lg.remove()
+            fig.legends.clear()
+
+        handles, labels = swarm.get_legend_handles_labels()
+        if '' in labels:
+            handles = handles[1:]
+            labels = labels[1:]
+
+        if handles and labels and len(handles) == len(labels):
+            fig.legend(
+                handles, labels,
+                loc='lower left',
+                bbox_to_anchor=(0, 0),
+                ncol=len(labels),
+                frameon=False,
+                fontsize=10,
+                markerscale=1.5,
+                handlelength=0.5,
+                handletextpad=0.1,
+                borderaxespad=0,
+                borderpad=0,
+                columnspacing=0.1,
+            )
+
+        # Draw significance bars for all significant pairs
+        draw_significance_bars(
+            ax,
+            pvals,
+            group_col_name,
+            subgroup_col_name
+        )
+
+        if flag:
+            save_file_path = os.path.splitext(file_path)[0] + '_grays.png'
+        else:
+            save_file_path = os.path.splitext(file_path)[0] + '_color.png'
+        fig.savefig(save_file_path, dpi=300, transparent=False)
+        plt.close(fig)
     print('-'*50)
 
 # ======================================================================================================================
@@ -500,11 +524,10 @@ def main():
 if __name__ == '__main__':
     main()
 
-    # version 3.5
+    # version 3.6
 
-    # TODO: point shape stripplot
-    # TODO: colors
     # TODO: replace comma
-    # TODO: подписи осей X могут не влезать
+    # TODO: оптимизация функций
+
 
 
