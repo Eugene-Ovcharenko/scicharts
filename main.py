@@ -4,9 +4,12 @@ import math
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
 from typing import Literal, Tuple, Union, List, Optional
 from  matplotlib import collections
 from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FuncFormatter
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -347,6 +350,30 @@ def autoscale_yaxis(ax, min_ticks=4, max_ticks=8):
     ax.set_autoscaley_on(False)
 
 
+def set_comma_decimal(ax, ndigits: int = 3):
+    """
+    Ставит запятую вместо точки **только** для дробных чисел, предварительно
+    округляя их до *ndigits* знаков после запятой. Целые выводятся как есть.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Ось, для которой меняется формат подписей.
+    ndigits : int, optional
+        Максимальное число десятичных знаков (по умолчанию 3).
+    """
+    def _fmt(x, _):
+        # целое число — без изменений
+        if math.isclose(x % 1, 0.0, abs_tol=1e-12):
+            return f"{int(round(x))}"
+        # дробное: округляем, удаляем лишние нули и точку
+        s = f"{x:.{ndigits}f}".rstrip('0').rstrip('.')
+        return s.replace('.', ',')
+
+    formatter = FuncFormatter(_fmt)
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
+
 # ======================================================================================================================
 # PLOTTING FUNCTIONS
 # ======================================================================================================================
@@ -356,7 +383,8 @@ def boxplot_builder(
         group_col_idx: int = 2,
         subgroup_col_idx: int = None,
         figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
-        figure_height_key: Literal['1', '3/2', '2', '3'] = '1'
+        figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+        num_format_ru: bool = True
 ):
     # Set style
     apply_font_style(plt.gca())
@@ -467,6 +495,9 @@ def boxplot_builder(
             ylabel=value_col_name
         )
 
+        if num_format_ru:
+            set_comma_decimal(ax)
+
         # Clear preevious legend
         if ax.get_legend() is not None:
             ax.get_legend().remove()
@@ -524,9 +555,8 @@ def main():
 if __name__ == '__main__':
     main()
 
-    # version 3.6
+    # version 3.7
 
-    # TODO: replace comma
     # TODO: оптимизация функций
 
 
