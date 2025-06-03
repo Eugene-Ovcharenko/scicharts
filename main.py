@@ -614,41 +614,39 @@ def boxplot_builder(
     values_col_idx: int = 1,
     group_col_idx: int = 2,
     subgroup_col_idx: Optional[int] = None,
-    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+    figure_length_key: Literal['1', '3/2', '2', '3'] = '3/2',
     figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
-    num_format_ru: bool = True
+    num_format_ru: bool = True,
+    groups_order: Optional[List[str]] = None,
+    subgroups_order: Optional[List[str]] = None,
 ) -> None:
-    """Build and save boxplots (color and grayscale) from Excel data, with significance bars.
+    """
+    Build and save boxplots (colour and grayscale) from Excel data, with
+    optional swarm overlays and significance bars.  The plotting order of
+    groups and sub-groups can now be specified explicitly.
 
-    This function reads data and p-values from an Excel file (Sheet1 and Sheet2),
-    constructs boxplots with overlaid swarmplots by group (and optional subgroup),
-    applies styling (fonts, axes, number formatting), draws significance bars for
-    pairwise comparisons below the alpha threshold, and saves two PNG outputs
-    (one color and one grayscale).
-
-    Args:
-        file_path (str): Path to the Excel file containing chart data (Sheet1) and
-            p-values (Sheet2).
-        values_col_idx (int): Zero-based index of the column in Sheet1 containing
-            numeric values to plot. Defaults to 1.
-        group_col_idx (int): Zero-based index of the column in Sheet1 containing
-            group labels. Defaults to 2.
-        subgroup_col_idx (Optional[int]): Zero-based index of the column in Sheet1
-            containing subgroup labels within each primary group. If None, no
-            subgrouping is applied. Defaults to None.
-        figure_length_key (Literal['1','3/2','2','3']): Key for figure width (in mm):
-            '1' = 56 mm, '3/2' = 84 mm, '2' = 112 mm, '3' = 168 mm. Defaults to '1'.
-        figure_height_key (Literal['1','3/2','2','3']): Key for figure height (in mm),
-            using the same mapping as figure_length_key. Defaults to '1'.
-        num_format_ru (bool): If True, format axis tick labels with commas as decimal
-            separators. Defaults to True.
-
-    Returns:
-        None: Saves two PNG files (color and grayscale) derived from the input file.
-
-    Raises:
-        FileNotFoundError: If the specified Excel file does not exist.
-        ValueError: If there are fewer than two groups with at least five observations.
+    Parameters
+    ----------
+    file_path : str
+        Path to the Excel file containing chart data (Sheet1) and p-values
+        (Sheet2).
+    values_col_idx : int, default 1
+        Zero-based index of the numeric column in Sheet1.
+    group_col_idx : int, default 2
+        Zero-based index of the primary-group column in Sheet1.
+    subgroup_col_idx : int or None, default None
+        Zero-based index of the subgroup column.  If None, no subgrouping.
+    figure_length_key, figure_height_key : {'1','3/2','2','3'}, default '1'
+        Keys mapped to journal-style figure dimensions in millimetres
+        (56, 84, 112, 168 mm).
+    num_format_ru : bool, default True
+        If True, axis tick labels use a comma as the decimal mark.
+    groups_order : list[str] or None, keyword-only
+        Desired left-to-right order of primary groups.  Must include *all*
+        group labels present in the data.
+    subgroups_order : list[str] or None, keyword-only
+        Desired hue order of sub-groups inside every primary group.
+        Must include *all* sub-group labels present in the data.
     """
     # Apply global font settings to current Axes
     apply_font_style(plt.gca())
@@ -677,6 +675,25 @@ def boxplot_builder(
         df[group_col_name] = df[group_col_name].astype(str)
         groups = sorted(df[group_col_name].unique())
         group_sizes = df.groupby(group_col_name).size()
+
+        # groups and subgroups order
+        if groups_order is not None:
+            missing = set(groups) - set(groups_order)
+            if missing:
+                raise ValueError(
+                    "groups_order is missing the following labels "
+                    f"detected in the data: {sorted(missing)}"
+                )
+            groups = groups_order
+
+        if subgroups_order is not None:
+            missing = set(subgroups) - set(subgroups_order)
+            if missing:
+                raise ValueError(
+                    "subgroups_order is missing the following labels "
+                    f"detected in the data: {sorted(missing)}"
+                )
+            subgroups = subgroups_order
 
         # Filter out groups with fewer than 5 observations
         groups_valid = [g for g in groups if group_sizes[g] >= 5]
@@ -729,6 +746,7 @@ def boxplot_builder(
             hue=subgroup_idx,
             order=groups,
             hue_order=subgroups,
+            whis=1.5,
             boxprops=dict(facecolor='none', edgecolor='black'),
             whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
             capprops=dict(color='black'),
@@ -835,7 +853,11 @@ def boxplot_builder(
 # ======================================================================================================================
 def main():
     file_path = 'charts/svd_clustering/fig1_ru.xlsx'
-    boxplot_builder(file_path, subgroup_col_idx=3)
+    boxplot_builder(
+        file_path,
+        subgroup_col_idx=3,
+        subgroups_order=['ПЭ', 'СКД'],
+    )
 
 
 if __name__ == '__main__':
