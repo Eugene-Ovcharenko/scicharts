@@ -555,33 +555,55 @@ def set_comma_decimal(
         ax: plt.Axes,
         ndigits: int = 3
 ) -> None:
-    """Format tick labels on both axes to use commas as decimal separators.
-
-    This function applies a custom formatter to the x- and y-axis major ticks:
-    - Integers are displayed without a decimal separator.
-    - Floating-point numbers are rounded to `ndigits` decimal places, trailing zeros
-      and the decimal point are removed if not needed, and the period is replaced by a comma.
-
-    Args:
-        ax (plt.Axes): The Axes object whose tick labels will be reformatted.
-        ndigits (int): Number of decimal places to round to for fractional values.
-            Defaults to 3.
-
-    Returns:
-        None: Modifies the Axes in place by setting a new major tick formatter.
     """
+    Format the numeric tick labels of both axes so that the decimal
+    separator is a comma.  If any current tick label on an axis is not
+    interpretable as a number, the formatter is *not* applied to that axis.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes whose tick labels should be reformatted.
+    ndigits : int, optional
+        Number of digits after the decimal point for non-integer values
+        (default is 3).
+    """
+
+    # ---------- helper functions ----------
     def _fmt(x: float, _: Any) -> str:
-        # If x is effectively an integer, display without decimal part
+        """Convert a number to a string, using a comma as the decimal mark."""
         if math.isclose(x % 1, 0.0, abs_tol=1e-12):
             return f"{int(round(x))}"
-        # Otherwise, format with `ndigits` decimal places, strip trailing zeros and dot,
-        # then replace the decimal point with a comma
         s = f"{x:.{ndigits}f}".rstrip("0").rstrip(".")
         return s.replace(".", ",")
 
+    def _axis_is_numeric(axis) -> bool:
+        """
+        Return True if the current tick labels of *axis* appear to be numeric,
+        based on their displayed text rather than their tick positions.
+        """
+        # Ensure the figure has drawn once; otherwise tick labels may be empty.
+        axis.figure.canvas.draw_idle()
+        labels = [txt.get_text() for txt in axis.get_ticklabels()]
+
+        # If any non-empty label cannot be converted to float, treat the
+        # axis as categorical.
+        for label in labels:
+            if not label:          # skip empty strings
+                continue
+            try:
+                float(label.replace(",", "."))  # allow comma as decimal mark
+            except ValueError:
+                return False
+        # Either all non-empty labels are numeric, or labels are still empty.
+        return True
+    # ---------- apply the formatter ----------
     formatter = FuncFormatter(_fmt)
-    ax.xaxis.set_major_formatter(formatter)
-    ax.yaxis.set_major_formatter(formatter)
+
+    if _axis_is_numeric(ax.xaxis):
+        ax.xaxis.set_major_formatter(formatter)
+    if _axis_is_numeric(ax.yaxis):
+        ax.yaxis.set_major_formatter(formatter)
 
 
 # ======================================================================================================================
@@ -812,9 +834,7 @@ def boxplot_builder(
 # MAIN FUNCTION
 # ======================================================================================================================
 def main():
-    file_path = 'charts/svd_clusters/test.xlsx'
-    boxplot_builder(file_path)
-    file_path = 'charts/svd_clusters/test2.xlsx'
+    file_path = 'charts/svd_clustering/fig1_ru.xlsx'
     boxplot_builder(file_path, subgroup_col_idx=3)
 
 
