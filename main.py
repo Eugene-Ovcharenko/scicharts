@@ -280,7 +280,9 @@ def draw_significance_bars(
     bar_height_mm: float = 1.2,
     mm_step: float = 2.5,
     alpha: float = 0.05,
-    box_plot_width_fraction: float = 0.8
+    box_plot_width_fraction: float = 0.8,
+    groups_order: Optional[List[str]] = None,
+    subgroups_order: Optional[List[str]] = None
 ) -> None:
     """Draw multiple significance bars on a Matplotlib Axes.
 
@@ -313,7 +315,13 @@ def draw_significance_bars(
             are drawn. Defaults to 0.05.
         box_plot_width_fraction (float): Fractional width allocated for each
             primary group in the box plot. Used to offset subgroups horizontally.
-            Defaults to 0.8.
+            Defaults to 0.8,
+        groups_order : list[str] or None, keyword-only
+            Desired left-to-right order of primary groups.  Must include *all*
+            group labels present in the data.
+        subgroups_order : list[str] or None, keyword-only
+            Desired hue order of sub-groups inside every primary group.
+            Must include *all* sub-group labels present in the data.
 
     Returns:
         None: Modifies the `ax` in place to add significance bars.
@@ -363,14 +371,14 @@ def draw_significance_bars(
     group_cols = [
         col for col in pvals_to_draw.columns if col.startswith(group_col_name)
     ]
-    groups = pvals_to_draw[group_cols].stack().unique().tolist()
+    groups = groups_order
 
     if subgroup_col_name:
         subgroup_cols = [
             col for col in pvals_to_draw.columns
             if col.startswith(subgroup_col_name)
         ]
-        subgroups = pvals_to_draw[subgroup_cols].stack().unique().tolist()
+        subgroups = subgroups_order
     else:
         subgroups = []
 
@@ -614,7 +622,7 @@ def boxplot_builder(
     values_col_idx: int = 1,
     group_col_idx: int = 2,
     subgroup_col_idx: Optional[int] = None,
-    figure_length_key: Literal['1', '3/2', '2', '3'] = '3/2',
+    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
     figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
     num_format_ru: bool = True,
     show_outliers: bool = True,
@@ -750,6 +758,7 @@ def boxplot_builder(
             order=groups,
             hue_order=subgroups,
             whis= 1.5 if show_outliers else 9,
+            gap = 0.1,
             boxprops=dict(facecolor='none', edgecolor='black'),
             whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
             capprops=dict(color='black'),
@@ -832,10 +841,12 @@ def boxplot_builder(
 
         # Draw all significance bars for p-values < alpha
         draw_significance_bars(
-            ax,
-            pvals,
-            group_col_name,
-            subgroup_col_name
+            ax=ax,
+            pvals=pvals,
+            group_col_name=group_col_name,
+            subgroup_col_name=subgroup_col_name,
+            groups_order=groups,
+            subgroups_order=subgroups
         )
 
         # Determine output file path (append _grays or _color)
