@@ -617,6 +617,7 @@ def boxplot_builder(
     figure_length_key: Literal['1', '3/2', '2', '3'] = '3/2',
     figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
     num_format_ru: bool = True,
+    show_outliers: bool = True,
     groups_order: Optional[List[str]] = None,
     subgroups_order: Optional[List[str]] = None,
 ) -> None:
@@ -641,6 +642,8 @@ def boxplot_builder(
         (56, 84, 112, 168 mm).
     num_format_ru : bool, default True
         If True, axis tick labels use a comma as the decimal mark.
+    show_outliers : bool, keyword-only, default True
+        Controls whether statistical outliers (fliers) are drawn in the boxplot.
     groups_order : list[str] or None, keyword-only
         Desired left-to-right order of primary groups.  Must include *all*
         group labels present in the data.
@@ -746,7 +749,7 @@ def boxplot_builder(
             hue=subgroup_idx,
             order=groups,
             hue_order=subgroups,
-            whis=1.5,
+            whis= 1.5 if show_outliers else 9,
             boxprops=dict(facecolor='none', edgecolor='black'),
             whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
             capprops=dict(color='black'),
@@ -857,6 +860,7 @@ def main():
         file_path,
         subgroup_col_idx=3,
         subgroups_order=['ПЭ', 'СКД'],
+        show_outliers=False
     )
 
 
