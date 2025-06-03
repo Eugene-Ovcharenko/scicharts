@@ -282,75 +282,57 @@ def draw_significance_bars(
     alpha: float = 0.05,
     box_plot_width_fraction: float = 0.8,
     groups_order: Optional[List[str]] = None,
-    subgroups_order: Optional[List[str]] = None
+    subgroups_order: Optional[List[str]] = None,
+    y_autoleveling: bool = True
 ) -> None:
     """Draw multiple significance bars on a Matplotlib Axes.
 
-    For each pairwise comparison in the `pvals` DataFrame where the p-value is
-    below the `alpha` threshold, this function computes the x-axis locations
-    (optionally accounting for subgroups), determines appropriate vertical
-    placement to avoid overlaps, and draws a bar with the corresponding
-    significance annotation.
-
-    Args:
-        ax (plt.Axes): Axes object on which to draw significance bars.
-        pvals (pd.DataFrame): DataFrame containing pairwise comparison results.
-            Must include a column "p" for p-values and columns starting with
-            `group_col_name` (and, if applicable, `subgroup_col_name`) for
-            identifying groups in each comparison.
-        group_col_name (str): Prefix of columns in `pvals` that identify the
-            primary groups for each comparison. Exactly two such columns must
-            exist for each row.
-        subgroup_col_name (Optional[str]): Prefix of columns in `pvals` that
-            identify subgroups within each primary group. If None, subgroups
-            are ignored. If provided, exactly two such columns must exist per
-            row.
-        above_mm (float): Vertical offset in millimeters above the highest data
-            point to place the first significance bar. Defaults to 2.0 mm.
-        bar_height_mm (float): Height of each significance bar in millimeters.
-            Defaults to 1.2 mm.
-        mm_step (float): Vertical spacing in millimeters between stacked bars.
-            Defaults to 2.5 mm.
-        alpha (float): Significance threshold. Only comparisons with p < alpha
-            are drawn. Defaults to 0.05.
-        box_plot_width_fraction (float): Fractional width allocated for each
-            primary group in the box plot. Used to offset subgroups horizontally.
-            Defaults to 0.8,
-        groups_order : list[str] or None, keyword-only
-            Desired left-to-right order of primary groups.  Must include *all*
-            group labels present in the data.
-        subgroups_order : list[str] or None, keyword-only
-            Desired hue order of sub-groups inside every primary group.
-            Must include *all* sub-group labels present in the data.
-
-    Returns:
-        None: Modifies the `ax` in place to add significance bars.
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    pvals : pandas.DataFrame
+        DataFrame of pairwise comparisons; must contain column "p".
+    group_col_name : str
+        Prefix of columns specifying primary groups in `pvals`.
+    subgroup_col_name : str or None
+        Prefix of columns specifying sub-groups in `pvals`.
+    above_mm : float, default 2.0
+        Offset (mm) above reference level for the first bar.
+    bar_height_mm : float, default 1.2
+        Height (mm) of each bar.
+    mm_step : float, default 2.5
+        Vertical spacing (mm) between stacked bars.
+    alpha : float, default 0.05
+        Bars are drawn only for *p* < `alpha`.
+    box_plot_width_fraction : float, default 0.8
+        Fractional width reserved for one primary group on the x-axis.
+    groups_order : list[str] or None
+        Left-to-right order of primary groups as plotted.
+    subgroups_order : list[str] or None
+        Order of sub-groups (hue) inside each primary group.
+    y_autoleveling : bool, default False
+        If True, bars are placed above the maximum y of the compared groups
+        instead of the global maximum of the axis.
     """
-    # Collect all y-coordinates from bars, lines, and scatter points to find the top
+    # ---------- collect global y coordinates ----------
     all_y_coords: List[float] = []
     for patch in ax.patches:
         if hasattr(patch, "get_y") and hasattr(patch, "get_height"):
             all_y_coords.append(patch.get_y() + patch.get_height())
-
     for line in ax.get_lines():
         y_data = line.get_ydata()
         if isinstance(y_data, (list, np.ndarray)) and len(y_data) > 0:
             all_y_coords.extend(np.asarray(y_data).flatten())
-
     for collection in ax.collections:
         if hasattr(collection, "get_offsets"):
             offsets = collection.get_offsets()
             if offsets.ndim == 2 and offsets.shape[1] == 2 and offsets.size > 0:
                 all_y_coords.extend(offsets[:, 1])
 
-    y_max_data = (
-        np.nanmax(all_y_coords) if all_y_coords else ax.get_ylim()[1]
-    )
+    y_max_data = np.nanmax(all_y_coords) if all_y_coords else ax.get_ylim()[1]
     y_min_ax, y_max_ax = ax.get_ylim()
-    if (y_max_ax - y_min_ax) != 0:
-        y_frac_top = (y_max_data - y_min_ax) / (y_max_ax - y_min_ax)
-    else:
-        y_frac_top = 1.0
+    y_frac_top = (y_max_data - y_min_ax) / (y_max_ax - y_min_ax) if (y_max_ax - y_min_ax) else 1.0
 
     fig = ax.figure
     bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
@@ -359,136 +341,107 @@ def draw_significance_bars(
         return
 
     height_mm = height_in * 25.4
-    mm_at_top_data = y_frac_top * height_mm
-    mm_first_bar = mm_at_top_data + above_mm
+    mm_first_bar_global = y_frac_top * height_mm + above_mm
 
-    # Filter p-values below alpha
+    # ---------- filter significant comparisons ----------
     pvals_to_draw = pvals[pvals["p"] < alpha].copy()
     if pvals_to_draw.empty:
         return
 
-    # Identify group and subgroup names
-    group_cols = [
-        col for col in pvals_to_draw.columns if col.startswith(group_col_name)
-    ]
-    groups = groups_order
+    # ---------- resolve plotting order ----------
+    group_cols = [c for c in pvals_to_draw.columns if c.startswith(group_col_name)]
+    if groups_order is None:
+        groups_order = [tick.get_text() for tick in ax.get_xticklabels()]
+    groups = list(map(str, groups_order))
 
     if subgroup_col_name:
-        subgroup_cols = [
-            col for col in pvals_to_draw.columns
-            if col.startswith(subgroup_col_name)
-        ]
-        subgroups = subgroups_order
+        subgroup_cols = [c for c in pvals_to_draw.columns if c.startswith(subgroup_col_name)]
+        if subgroups_order is None:
+            _, sub_lbls = ax.get_legend_handles_labels()
+            subgroups_order = sub_lbls
+        subgroups = list(map(str, subgroups_order))
     else:
         subgroups = []
+        subgroup_cols = []
 
+    # ---------- per-group y maxima (for local reference) ----------
+    group_y_max: Dict[int, float] = {}
+    if y_autoleveling:
+        # swarm/scatter
+        for coll in ax.collections:
+            if hasattr(coll, "get_offsets"):
+                offs = coll.get_offsets()
+                if offs.ndim == 2 and offs.shape[1] == 2:
+                    for x_val, y_val in offs:
+                        gi = int(round(x_val))
+                        group_y_max[gi] = max(group_y_max.get(gi, -np.inf), y_val)
+        # boxplot patches
+        for patch in ax.patches:
+            if all(hasattr(patch, a) for a in ("get_x", "get_width", "get_y", "get_height")):
+                x_c = patch.get_x() + patch.get_width() / 2
+                gi = int(round(x_c))
+                y_v = patch.get_y() + patch.get_height()
+                group_y_max[gi] = max(group_y_max.get(gi, -np.inf), y_v)
+
+    # ---------- build list of bars ----------
     bars_to_draw: List[Dict[str, float]] = []
     for _, row in pvals_to_draw.iterrows():
-        group_name_1 = row.loc[group_cols[0]]
-        group_name_2 = (
-            row.loc[group_cols[1]] if len(group_cols) > 1 else None
-        )
-
-        if subgroup_col_name:
-            subgroup_name_1 = row.loc[subgroup_cols[0]]
-            subgroup_name_2 = (
-                row.loc[subgroup_cols[1]] if len(subgroup_cols) > 1 else None
-            )
-        else:
-            subgroup_name_1 = None
-            subgroup_name_2 = None
-
+        g1, g2 = row[group_cols[0]], row[group_cols[1]]
+        sg1 = row[subgroup_cols[0]] if subgroup_cols else None
+        sg2 = row[subgroup_cols[1]] if len(subgroup_cols) > 1 else None
         p_val = row["p"]
-        current_x_coords: List[float] = []
+        x_coords: List[float] = []
 
-        # Determine x-coordinates for each group (and subgroup if present)
-        for group_name, subgroup_name in [
-            (group_name_1, subgroup_name_1),
-            (group_name_2, subgroup_name_2)
-        ]:
-            group_idx = groups.index(group_name)
-            if subgroup_name is not None and subgroups:
-                try:
-                    subgroups_str_list = [str(sg) for sg in subgroups]
-                    subgroup_idx = subgroups_str_list.index(str(subgroup_name))
-                    num_sg_total = len(subgroups_str_list)
-                    if num_sg_total == 1:
-                        x_coord = float(group_idx)
-                    else:
-                        width_per_slot = box_plot_width_fraction / num_sg_total
-                        x_coord = (
-                            float(group_idx)
-                            - box_plot_width_fraction / 2
-                            + width_per_slot * (subgroup_idx + 0.5)
-                        )
-                    current_x_coords.append(x_coord)
-                except ValueError:
-                    warnings.warn(
-                        f"Subgroup '{subgroup_name}' not found in {subgroups_str_list}. "
-                        f"Using center of group '{group_name}'. Row: {row.to_dict()}"
-                    )
-                    current_x_coords.append(float(group_idx))
+        for g_name, sg_name in [(g1, sg1), (g2, sg2)]:
+            g_idx = groups.index(g_name)
+            if sg_name is not None and subgroups:
+                sub_idx = [str(sg) for sg in subgroups].index(str(sg_name))
+                width_slot = box_plot_width_fraction / len(subgroups)
+                x_coord = g_idx - box_plot_width_fraction / 2 + width_slot * (sub_idx + 0.5)
             else:
-                current_x_coords.append(float(group_idx))
+                x_coord = float(g_idx)
+            x_coords.append(x_coord)
 
-        if None in current_x_coords or len(current_x_coords) != 2:
+        if len(x_coords) != 2 or abs(x_coords[0] - x_coords[1]) < 1e-6:
             continue
+        bars_to_draw.append({"x1": x_coords[0], "x2": x_coords[1], "width": abs(x_coords[1] - x_coords[0]), "p_val": p_val})
 
-        x1, x2 = current_x_coords
-        if abs(x1 - x2) < 1e-6:
-            warnings.warn(
-                f"Zero-width significance line (x1={x1}, x2={x2}). Skipping. "
-                f"Row: {row.to_dict()}"
-            )
-            continue
+    bars_to_draw.sort(key=lambda d: d["width"])
 
-        width = abs(x2 - x1)
-        bars_to_draw.append({"x1": x1, "x2": x2, "width": width, "p_val": p_val})
-
-    # Sort bars so shorter spans are drawn closer to the data
-    bars_to_draw.sort(key=lambda d: d["width"], reverse=False)
-
-    # Place bars on successive vertical levels to avoid overlap
-    occupied_ranges_at_level: Dict[int, List[Tuple[float, float]]] = {}
+    # ---------- place bars without overlap ----------
+    occupied_at_level: Dict[int, List[Tuple[float, float]]] = {}
     for bar in bars_to_draw:
-        x1 = bar["x1"]
-        x2 = bar["x2"]
-        p_val = bar["p_val"]
-        bar_range = tuple(sorted((x1, x2)))
-        chosen_level = 0
-
+        x1, x2, p_val = bar["x1"], bar["x2"], bar["p_val"]
+        x_range = tuple(sorted((x1, x2)))
+        level = 0
         while True:
-            if chosen_level not in occupied_ranges_at_level:
-                occupied_ranges_at_level[chosen_level] = []
-
-            has_overlap = False
-            epsilon = 1e-3
-            for r_min, r_max in occupied_ranges_at_level[chosen_level]:
-                if max(bar_range[0], r_min) < min(bar_range[1], r_max) - epsilon:
-                    has_overlap = True
-                    break
-
-            if not has_overlap:
-                occupied_ranges_at_level[chosen_level].append(bar_range)
+            if level not in occupied_at_level:
+                occupied_at_level[level] = []
+            if not any(max(x_range[0], r0) < min(x_range[1], r1) - 1e-3 for r0, r1 in occupied_at_level[level]):
+                occupied_at_level[level].append(x_range)
+                break
+            level += 1
+            if level > 20:  # safety limit
+                warnings.warn("Exceeded 20 stacked significance levels.")
+                occupied_at_level[level - 1].append(x_range)
+                level -= 1
                 break
 
-            chosen_level += 1
-            if chosen_level > 20:
-                warnings.warn(
-                    "Exceeded maximum levels (20) for significance lines. "
-                    "Assigning to last allowed level."
-                )
-                occupied_ranges_at_level.setdefault(chosen_level - 1, []).append(
-                    bar_range
-                )
-                break
+        # reference level for this bar
+        if y_autoleveling and group_y_max:
+            ref_y = max(group_y_max.get(int(round(x1)), y_max_data),
+                        group_y_max.get(int(round(x2)), y_max_data))
+            y_frac = (ref_y - y_min_ax) / (y_max_ax - y_min_ax) if (y_max_ax - y_min_ax) else 1.0
+            mm_first_bar = y_frac * height_mm + above_mm
+        else:
+            mm_first_bar = mm_first_bar_global
 
-        y_mm_for_bar = mm_first_bar + chosen_level * mm_step
+        y_mm = mm_first_bar + level * mm_step
         draw_significance_bar_abs(
             ax,
             (x1, x2),
             p_val,
-            y_mm_for_bar,
+            y_mm,
             bar_height_mm=bar_height_mm,
             alpha=alpha
         )
