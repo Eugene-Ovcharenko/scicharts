@@ -10,6 +10,9 @@ from fractions import Fraction
 from  matplotlib import collections
 from matplotlib.ticker import MaxNLocator
 from matplotlib.ticker import FuncFormatter
+from matplotlib import colors as mplcolors
+from matplotlib.patches import Ellipse
+from matplotlib.axes import Axes
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -122,44 +125,43 @@ def apply_font_style(
 
 
 def _apply_axes_style(
-        ax: plt.Axes,
-        xlabel: str,
-        ylabel: str
+    ax: plt.Axes,
+    xlabel: str,
+    ylabel: str,
+    autoscale: Literal["none", "x", "y", "both"] = "y",
+    force_zero: bool = True,
 ) -> None:
-    """Apply label formatting and general style to a Matplotlib Axes.
-
-    Args:
-        ax (plt.Axes): The Axes object to style.
-        xlabel (str): The text for the x-axis label. Will be line-broken
-            automatically based on the axis width.
-        ylabel (str): The text for the y-axis label. Will be line-broken
-            automatically based on the axis height.
-
-    Returns:
-        None
     """
-    # Determine scaling coefficients for automatic line breaking
+    Apply labelling, spine trimming, and optional axis auto-scaling.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    xlabel, ylabel : str
+        Axis-label strings; long labels are line-broken automatically.
+    autoscale : {"none", "x", "y", "both"}, default "y"
+        Which axis should be passed to `_autoscale_axis`.  Use "none"
+        to keep both axes unchanged.
+    force_zero : bool, default True
+        Forwarded to `_autoscale_axis`; if False the lower bound is not
+        clamped to 0.
+    """
+    # ── automatic line breaking for labels ───────────────────────────
     bbox = ax.get_window_extent()
-    x_text_scale_coef = int(bbox.width / 20)
-    y_text_scale_coef = int(bbox.height / 20)
+    x_max = max(int(bbox.width / 20), 1)
+    y_max = max(int(bbox.height / 20), 1)
 
-    ax.set_xlabel(
-        _auto_linebreak(xlabel, maxlen=x_text_scale_coef),
-        labelpad=0,
-        linespacing=0.8
-    )
-    ax.set_ylabel(
-        _auto_linebreak(ylabel, maxlen=y_text_scale_coef),
-        labelpad=0,
-        linespacing=0.8
-    )
+    ax.set_xlabel(_auto_linebreak(xlabel, maxlen=x_max), labelpad=0, linespacing=0.8)
+    ax.set_ylabel(_auto_linebreak(ylabel, maxlen=y_max), labelpad=0, linespacing=0.8)
 
-    # Autoscale the y-axis based on data limits or other custom logic
-    _autoscale_yaxis(ax)
+    # ── optional axis auto-scaling ───────────────────────────────────
+    if autoscale != "none":
+        _autoscale_axis(ax, mode=autoscale, force_zero=force_zero)
 
-    # Hide top and right spines for a cleaner appearance
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    # ── cosmetic tweaks ──────────────────────────────────────────────
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
 
 # ======================================================================================================================
@@ -584,75 +586,97 @@ def _draw_significance_bars(
         )
 
 
-def _autoscale_yaxis(
-        ax: plt.Axes,
-        min_ticks: int = 4,
-        max_ticks: int = 8
+def _autoscale_axis(
+    ax: plt.Axes,
+    mode: Literal["x", "y", "both"] = "y",
+    min_ticks: int = 2,
+    max_ticks: int = 8,
+    force_zero: bool = True,              # ← new switch
 ) -> None:
-    """Automatically scale the Y-axis and set “nice” tick marks.
-
-    This function computes an appropriate Y-axis range starting at zero,
-    selects a “nice” tick interval based on the data span, and enforces
-    a minimum and maximum number of ticks.
-
-    Args:
-        ax (plt.Axes): The Axes object whose Y-axis will be rescaled.
-        min_ticks (int): Minimum number of ticks to display on the Y-axis.
-            Defaults to 4.
-        max_ticks (int): Maximum number of ticks to display on the Y-axis.
-            Defaults to 8.
-
-    Returns:
-        None: Modifies the Axes in place by setting yticks and disabling
-        automatic y-axis scaling.
     """
-    # Force lower bound of Y-axis to 0
-    ax.set_ylim(0)
-    ymin, ymax = ax.get_ylim()
-    if ymax <= ymin:
-        ymax = ymin + 1
+    Autoscale the selected axis (or both) so that tick marks fall on “nice”
+    values.  Optionally force the lower bound to zero.
 
-    # Round minimum down (usually 0 for box plots)
-    y_min = 0 if ymin < 0.05 * ymax else math.floor(ymin)
-    span = ymax - y_min
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes to rescale.
+    mode : {"x", "y", "both"}, default "y"
+        Which axis to process.
+    min_ticks, max_ticks : int
+        Desired bounds on the number of major tick marks.
+    force_zero : bool, default True
+        If True (default) the lower bound is clamped to 0; if False the
+        current lower limit is respected.
+    """
 
-    # Determine raw step based on desired minimum ticks
-    raw_step = span / max(min_ticks, 1)
+    def _adjust(which: str) -> None:
+        if which == "x":
+            get_lim = ax.get_xlim
+            set_lim = ax.set_xlim
+            set_ticks = ax.set_xticks
+            set_labels = ax.set_xticklabels
+            set_autoscale = ax.set_autoscalex_on
+        else:  # "y"
+            get_lim = ax.get_ylim
+            set_lim = ax.set_ylim
+            set_ticks = ax.set_yticks
+            set_labels = ax.set_yticklabels
+            set_autoscale = ax.set_autoscaley_on
 
-    # Compute magnitude for “nice” step sizes
-    magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
-    nice_factors = np.array([1, 2, 2.5, 5, 10])
-    step_candidates = nice_factors * magnitude
+        # ── lower bound handling ────────────────────────────────────────────
+        if force_zero:
+            set_lim(left=0) if which == "x" else set_lim(bottom=0)
 
-    # Select a step such that number of ticks is between min_ticks and max_ticks
-    for step in step_candidates:
-        ticks = np.arange(
-            math.floor(y_min / step) * step,
-            math.ceil(ymax / step) * step + step * 0.5,
-            step
-        )
-        if min_ticks <= len(ticks) <= max_ticks:
-            break
+        vmin, vmax = get_lim()
+        if vmax <= vmin:           # degenerate span guard
+            vmax = vmin + 1
+
+        # Use zero as the base if required, otherwise honour vmin
+        base_min = 0 if force_zero else vmin
+        span = vmax - base_min
+        raw_step = span / max(min_ticks, 1)
+
+        # ── pick a “nice” step value ───────────────────────────────────────
+        magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
+        nice_factors = np.array([1, 2, 2.5, 5, 10])
+        step_candidates = nice_factors * magnitude
+
+        for step in step_candidates:
+            ticks = np.arange(
+                math.floor(base_min / step) * step,
+                math.ceil(vmax / step) * step + step * 0.5,
+                step,
+            )
+            if min_ticks <= len(ticks) <= max_ticks:
+                break
+        else:  # fallback
+            step = max(raw_step, 1)
+            ticks = np.linspace(base_min, vmax, 4)
+
+        # ── labels: ints for integer spacing, trimmed floats otherwise ─────
+        if step < 1:
+            labels = [f"{t:.2f}".rstrip("0").rstrip(".") for t in ticks]
+        else:
+            labels = [f"{int(t)}" for t in ticks]
+
+        set_ticks(ticks)
+        set_labels(labels)
+        set_autoscale(False)
+
+    if mode == "both":
+        _adjust("x")
+        _adjust("y")
+    elif mode in {"x", "y"}:
+        _adjust(mode)
     else:
-        # Fallback: divide span into 4 intervals if no “nice” step works
-        step = max(raw_step, 1)
-        ticks = np.linspace(y_min, ymax, 4)
-
-    # Format tick labels: use two decimals if step < 1, else integer formatting
-    if step < 1:
-        tick_labels = [f"{tick:.2f}".rstrip("0").rstrip(".") for tick in ticks]
-    else:
-        tick_labels = [f"{int(tick)}" for tick in ticks]
-
-    ax.set_yticks(ticks)
-    ax.set_yticklabels(tick_labels)
-    ax.set_autoscaley_on(False)
+        raise ValueError("mode must be 'x', 'y', or 'both'")
 
 
 def _set_comma_decimal(
     ax: plt.Axes,
     ndigits: int = 3,
-    axes: str = "y",            # ← new: "both", "x", or "y"
+    axes: str = "y",
 ) -> None:
     """
     Replace the decimal point by a comma on numeric axes.
@@ -694,6 +718,78 @@ def _set_comma_decimal(
         ax.xaxis.set_major_formatter(formatter)
     if axes in ("both", "y") and _axis_is_numeric(ax.yaxis):
         ax.yaxis.set_major_formatter(formatter)
+
+
+def _plot_confidence_ellipse(
+        x: np.ndarray,
+        y: np.ndarray,
+        ax: plt.Axes,
+        n_std: float = 1.96,
+        edgecolor: str = 'black',
+        **kwargs
+) -> None:
+    """
+    Draw a confidence ellipse or fallback circle based on the covariance of two variables.
+
+    The function visualizes the confidence region of bivariate data using an ellipse
+    derived from the covariance matrix of `x` and `y`. If only one data point is provided,
+    a small circle is drawn instead. This is commonly used to illustrate the uncertainty
+    of 2D clusters or bivariate Gaussians.
+
+    Args:
+        x (np.ndarray): 1D array of x-coordinates.
+        y (np.ndarray): 1D array of y-coordinates.
+        ax (matplotlib.axes.Axes): Matplotlib Axes object on which to draw.
+        n_std (float, optional): Number of standard deviations to determine the ellipse radius.
+            Default is 1.96 (approx. 95% confidence interval for normal distribution).
+        edgecolor (str, optional): Color of the ellipse edge. Default is 'black'.
+        **kwargs: Additional keyword arguments passed to the `Ellipse` or `Circle` constructor
+            (e.g., `linestyle`, `linewidth`, `facecolor`, etc.).
+
+    Returns:
+        None. The function modifies the provided Axes object in place.
+
+    """
+    edgecolor_rgba = mplcolors.to_rgba(edgecolor, alpha=0.75)
+
+    if x.size == 0:
+        return
+    if x.size == 1:
+        # Draw a small circle for a single point
+        ax.add_patch(
+            plt.Circle(
+                (x[0], y[0]),
+                radius=0.05,
+                edgecolor=edgecolor_rgba,
+                facecolor='none',
+                lw=2,
+                **kwargs
+            )
+        )
+        return
+
+    # Compute the covariance matrix and mean values
+    cov = np.cov(x, y)
+    mean_x, mean_y = np.mean(x), np.mean(y)
+    # Compute eigenvalues and eigenvectors
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = eigvals.argsort()[::-1]
+    eigvals, eigvecs = eigvals[order], eigvecs[:, order]
+    # Calculate the rotation angle of the ellipse (in degrees)
+    angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
+    # Calculate the width and height of the ellipse
+    width, height = 2 * n_std * np.sqrt(eigvals)
+    ellipse = Ellipse(
+        (mean_x, mean_y),
+        width=width,
+        height=height,
+        angle=angle,
+        edgecolor=edgecolor_rgba,
+        facecolor='none',
+        lw=1,
+        **kwargs
+    )
+    ax.add_patch(ellipse)
 
 
 # ======================================================================================================================
@@ -1063,6 +1159,136 @@ def barplot_builder(
     print("-" * 50)
 
 
+def scatter_builder(
+    file_path: str,
+    values_col_x_idx: int = 1,
+    values_col_y_idx: int = 2,
+    group_col_idx: Optional[int] = None,
+    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+    figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+    num_format_ru: bool = True,
+) -> None:
+
+    # Apply global font settings to current Axes
+    apply_font_style(plt.gca())
+
+    # Read file
+    print(f"Read file: {file_path}")
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    try:
+        df = pd.read_excel(file_path, sheet_name="Sheet1")
+        values_col_x_idx = df.columns[values_col_x_idx]
+        values_col_y_idx = df.columns[values_col_y_idx]
+        values_x = df[values_col_x_idx]
+        values_y = df[values_col_y_idx]
+    except Exception as e:
+        raise RuntimeError(f"Data loading error - Sheet1: {e}") from e
+    if (group_col_idx is not None
+            and isinstance(group_col_idx, int)
+            and 0 <= group_col_idx < len(df.columns)):
+        group_col_name = df.columns[group_col_idx]
+        df[group_col_name] = df[group_col_name].astype(str)
+        groups = sorted(df[group_col_name].unique())
+    else:
+        group_col_name = None
+        groups = []
+
+    # Iterate twice: once for color, once for grayscale
+    for greyscale in [False, True]:
+        palette_contrast, color = set_color_style(greyscale=greyscale)
+        basic_color_palette = [color] * len(groups)
+        palette = palette_contrast if (group_col_idx is not None) else basic_color_palette
+
+        # Create figure and axes with specified dimensions
+        fig, ax = make_fig_ax(
+            length_key=figure_length_key,
+            height_key=figure_height_key
+        )
+
+        # scatter
+        scatter = sns.scatterplot(
+            data=df,
+            x=values_col_x_idx,
+            y=values_col_y_idx,
+            hue=group_col_name,
+            style=group_col_name,
+            markers=True,
+            ax=ax,
+            palette=palette,
+            s=10,
+            edgecolor='black',
+            linewidth=0.5,
+            alpha=0.75,
+            zorder=1
+        )
+
+        # Draw confidence ellipses for each cluster
+        if group_col_idx is not None:
+            for group in groups:
+                group_color = palette[groups.index(group)]
+                cluster_indices = np.where(df[group_col_name] == group)[0]
+                x_cluster = df[values_col_x_idx].iloc[cluster_indices]
+                y_cluster = df[values_col_y_idx].iloc[cluster_indices]
+                _plot_confidence_ellipse(x_cluster, y_cluster, ax, n_std=1.96, edgecolor=group_color)
+
+        # Apply axis label formatting and styling
+        _apply_axes_style(
+            ax=ax,
+            xlabel=values_col_x_idx,
+            ylabel=values_col_y_idx,
+            autoscale='both',
+            force_zero=False
+        )
+
+        # Format numeric tick labels with Russian-style decimals if requested
+        if num_format_ru:
+            _set_comma_decimal(
+                ax=ax,
+                axes='both'
+            )
+
+        # Remove any existing legends
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+            for lg in fig.legends:
+                lg.remove()
+            fig.legends.clear()
+
+        # Rebuild legend using existing handles and labels
+        handles, labels = scatter.get_legend_handles_labels()
+        if "" in labels:
+            handles = handles[1:]
+            labels = labels[1:]
+        if handles and labels and len(handles) == len(labels):
+            fig.legend(
+                handles,
+                labels,
+                loc='lower left',
+                bbox_to_anchor=(0, 0),
+                ncol=len(labels),
+                frameon=False,
+                fontsize=10,
+                markerscale=1.5,
+                handlelength=1,
+                handletextpad=0.1,
+                borderaxespad=0.0,
+                borderpad=0.0,
+                columnspacing=0.5
+            )
+
+        # save figure
+        _save_chart(
+            fig=fig,
+            file_path=file_path,
+            figure_length_key=figure_length_key,
+            figure_height_key=figure_height_key,
+            greyscale=greyscale
+        )
+
+    print("-" * 50)
+
+
 # ======================================================================================================================
 # MAIN FUNCTION
 # ======================================================================================================================
@@ -1091,6 +1317,16 @@ def main():
 
     # TODO: #8 scatter + confidence interval
     file_names = ['fig8A_ru.xlsx', 'fig8B_ru.xlsx', 'fig8C_ru.xlsx']
+    file_name = 'fig8A_ru.xlsx'
+    scatter_builder(
+        file_path=os.path.join(file_dir, file_name),
+        values_col_x_idx=1,
+        values_col_y_idx=2,
+        group_col_idx=0,
+        figure_length_key='1',
+        figure_height_key='1',
+        num_format_ru=True
+    )
 
     # TODO: #9 bar
     file_name = 'fig9_ru.xlsx'
@@ -1113,6 +1349,9 @@ def main():
     # TODO: #10E-G boxplots | show_outliers=True,
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
 
+    # TODO: grayscale contrast problem
+
+    # TODO: p-values mode
 
 if __name__ == '__main__':
     main()
