@@ -121,7 +121,7 @@ def apply_font_style(
     })
 
 
-def apply_axes_style(
+def _apply_axes_style(
         ax: plt.Axes,
         xlabel: str,
         ylabel: str
@@ -144,18 +144,18 @@ def apply_axes_style(
     y_text_scale_coef = int(bbox.height / 20)
 
     ax.set_xlabel(
-        auto_linebreak(xlabel, maxlen=x_text_scale_coef),
+        _auto_linebreak(xlabel, maxlen=x_text_scale_coef),
         labelpad=0,
         linespacing=0.8
     )
     ax.set_ylabel(
-        auto_linebreak(ylabel, maxlen=y_text_scale_coef),
+        _auto_linebreak(ylabel, maxlen=y_text_scale_coef),
         labelpad=0,
         linespacing=0.8
     )
 
     # Autoscale the y-axis based on data limits or other custom logic
-    autoscale_yaxis(ax)
+    _autoscale_yaxis(ax)
 
     # Hide top and right spines for a cleaner appearance
     ax.spines['top'].set_visible(False)
@@ -263,7 +263,45 @@ def _load_chart_data(
     return df, pvals, meta
 
 
-def auto_linebreak(
+def _save_chart(
+    fig: plt.Figure,
+    file_path: str,
+    figure_length_key: str,
+    figure_height_key: str,
+    greyscale: bool,
+    dpi: int = 300,
+    transparent: bool = False,
+) -> None:
+    """
+    Save a Matplotlib figure to disk using the naming convention previously
+    applied inline.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure object to be saved.
+    file_path : str
+        Original Excel file path; filename stem is reused for the output.
+    figure_length_key, figure_height_key : str
+        Keys ("1", "3/2", "2", "3") converted to their numeric ratios for
+        inclusion in the output filename.
+    greyscale : bool
+        Whether the figure is grayscale; controls the filename suffix.
+    dpi : int, default 300
+        Resolution passed to `fig.savefig`.
+    transparent : bool, default False
+        Transparency flag passed to `fig.savefig`.
+    """
+    postfix = f"{float(Fraction(figure_length_key))}x{float(Fraction(figure_height_key))}"
+    base, _ = os.path.splitext(file_path)
+    suffix = "grays" if greyscale else "color"
+    save_file_path = f"{base}_{postfix}_{suffix}.png"
+
+    fig.savefig(save_file_path, dpi=dpi, transparent=transparent)
+    plt.close(fig)
+
+
+def _auto_linebreak(
         title: str,
         maxlen: int = 30
 ) -> str:
@@ -287,7 +325,7 @@ def auto_linebreak(
     return title[:space_idx] + '\n' + title[space_idx + 1:]
 
 
-def draw_significance_bar_abs(
+def _draw_significance_bar_abs(
     ax: plt.Axes,
     group_locs: Tuple[float, float],
     p_value: Union[float, int],
@@ -370,7 +408,7 @@ def draw_significance_bar_abs(
     )
 
 
-def draw_significance_bars(
+def _draw_significance_bars(
     ax: plt.Axes,
     pvals: pd.DataFrame,
     group_col_name: str,
@@ -536,7 +574,7 @@ def draw_significance_bars(
             mm_first_bar = mm_first_bar_global
 
         y_mm = mm_first_bar + level * mm_step
-        draw_significance_bar_abs(
+        _draw_significance_bar_abs(
             ax,
             (x1, x2),
             p_val,
@@ -546,7 +584,7 @@ def draw_significance_bars(
         )
 
 
-def autoscale_yaxis(
+def _autoscale_yaxis(
         ax: plt.Axes,
         min_ticks: int = 4,
         max_ticks: int = 8
@@ -611,7 +649,7 @@ def autoscale_yaxis(
     ax.set_autoscaley_on(False)
 
 
-def set_comma_decimal(
+def _set_comma_decimal(
         ax: plt.Axes,
         ndigits: int = 3
 ) -> None:
@@ -805,7 +843,7 @@ def boxplot_builder(
         ax.set_xlim(-0.5, n_groups - 0.5)
 
         # Apply axis label formatting and styling
-        apply_axes_style(
+        _apply_axes_style(
             ax=ax,
             xlabel=group_col_name,
             ylabel=value_col_name
@@ -813,7 +851,7 @@ def boxplot_builder(
 
         # Format numeric tick labels with Russian-style decimals if requested
         if num_format_ru:
-            set_comma_decimal(ax)
+            _set_comma_decimal(ax)
 
         # Remove any existing legends
         if ax.get_legend() is not None:
@@ -845,7 +883,7 @@ def boxplot_builder(
             )
 
         # Draw all significance bars for p-values < alpha
-        draw_significance_bars(
+        _draw_significance_bars(
             ax=ax,
             pvals=pvals,
             group_col_name=group_col_name,
@@ -854,16 +892,14 @@ def boxplot_builder(
             subgroups_order=subgroups
         )
 
-        # Determine output file path (append _grays or _color)
-        postfix = f"{float(Fraction(figure_length_key))}x{float(Fraction(figure_height_key))}"
-        base, _ = os.path.splitext(file_path)
-        if greyscale:
-            save_file_path = f"{base}_{postfix}_grays.png"
-        else:
-            save_file_path = f"{base}_{postfix}_color.png"
-
-        fig.savefig(save_file_path, dpi=300, transparent=False)
-        plt.close(fig)
+        # save figure
+        _save_chart(
+            fig=fig,
+            file_path=file_path,
+            figure_length_key=figure_length_key,
+            figure_height_key=figure_height_key,
+            greyscale=greyscale,
+        )
 
     print("-" * 50)
 
