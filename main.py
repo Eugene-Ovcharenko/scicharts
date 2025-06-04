@@ -650,57 +650,49 @@ def _autoscale_yaxis(
 
 
 def _set_comma_decimal(
-        ax: plt.Axes,
-        ndigits: int = 3
+    ax: plt.Axes,
+    ndigits: int = 3,
+    axes: str = "y",            # ← new: "both", "x", or "y"
 ) -> None:
     """
-    Format the numeric tick labels of both axes so that the decimal
-    separator is a comma.  If any current tick label on an axis is not
-    interpretable as a number, the formatter is *not* applied to that axis.
+    Replace the decimal point by a comma on numeric axes.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
-        The axes whose tick labels should be reformatted.
-    ndigits : int, optional
-        Number of digits after the decimal point for non-integer values
-        (default is 3).
+    ndigits : int
+        Digits after the decimal for non-integer ticks.
+    axes : {"both", "x", "y"}, default "y"
+        Which axis to format.  Use "y" to avoid changing categorical x-labels.
     """
 
-    # ---------- helper functions ----------
     def _fmt(x: float, _: Any) -> str:
-        """Convert a number to a string, using a comma as the decimal mark."""
         if math.isclose(x % 1, 0.0, abs_tol=1e-12):
             return f"{int(round(x))}"
         s = f"{x:.{ndigits}f}".rstrip("0").rstrip(".")
         return s.replace(".", ",")
 
     def _axis_is_numeric(axis) -> bool:
-        """
-        Return True if the current tick labels of *axis* appear to be numeric,
-        based on their displayed text rather than their tick positions.
-        """
-        # Ensure the figure has drawn once; otherwise tick labels may be empty.
-        axis.figure.canvas.draw_idle()
-        labels = [txt.get_text() for txt in axis.get_ticklabels()]
+        axis.figure.canvas.draw_idle()           # ensure labels exist
+        labels = [t.get_text() for t in axis.get_ticklabels()]
+        locs   = axis.get_ticklocs()
 
-        # If any non-empty label cannot be converted to float, treat the
-        # axis as categorical.
-        for label in labels:
-            if not label:          # skip empty strings
+        for lbl, loc in zip(labels, locs):
+            if not lbl:
                 continue
             try:
-                float(label.replace(",", "."))  # allow comma as decimal mark
+                val = float(lbl.replace(",", "."))
             except ValueError:
+                return False                     # non-numeric label → categorical
+            if not math.isclose(val, loc):       # mismatch text vs. coordinate
                 return False
-        # Either all non-empty labels are numeric, or labels are still empty.
         return True
-    # ---------- apply the formatter ----------
+
     formatter = FuncFormatter(_fmt)
 
-    if _axis_is_numeric(ax.xaxis):
+    if axes in ("both", "x") and _axis_is_numeric(ax.xaxis):
         ax.xaxis.set_major_formatter(formatter)
-    if _axis_is_numeric(ax.yaxis):
+    if axes in ("both", "y") and _axis_is_numeric(ax.yaxis):
         ax.yaxis.set_major_formatter(formatter)
 
 
@@ -904,6 +896,173 @@ def boxplot_builder(
     print("-" * 50)
 
 
+def barplot_builder(
+    file_path: str,
+    group_col_idx: int = 1,
+    subgroup_col_idx: Optional[int] = None,
+    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+    figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+    num_format_ru: bool = True,
+    groups_order: Optional[List[str]] = None,
+    subgroups_order: Optional[List[str]] = None,
+) -> None:
+    """Build and save barplots (color and grayscale) from Excel data with significance bars.
+
+    Reads grouping and (optionally) subgrouping information from an Excel file,
+    constructs a side‐by‐side count bar chart for each group (and subgroup),
+    overlays statistical significance bars for pairwise comparisons, and saves
+    the resulting figures in both color and grayscale variants.
+
+    Args:
+        file_path (str):
+            Path to the Excel file containing chart data on the first sheet
+            and pairwise p-values on the second sheet.
+        group_col_idx (int, optional):
+            Zero-based index of the column in Sheet1 that defines the primary
+            grouping. Defaults to 1.
+        subgroup_col_idx (Optional[int], optional):
+            Zero-based index of the column in Sheet1 that defines subgroups
+            within each primary group. If None, no subgrouping is applied.
+            Defaults to None.
+        figure_length_key (Literal['1', '3/2', '2', '3'], optional):
+            Key for the figure width, mapping to a physical width in millimeters:
+            '1'→56 mm, '3/2'→84 mm, '2'→112 mm, '3'→168 mm. Defaults to '1'.
+        figure_height_key (Literal['1', '3/2', '2', '3'], optional):
+            Key for the figure height, with the same mapping as
+            `figure_length_key`. Defaults to '1'.
+        num_format_ru (bool, optional):
+            If True, tick labels on both axes are formatted with a comma as the
+            decimal separator. Defaults to True.
+        groups_order (Optional[List[str]], optional):
+            Explicit left-to-right order of primary group labels. Must include
+            all group names present in the data. If None, the sorted order of
+            unique group labels is used. Defaults to None.
+        subgroups_order (Optional[List[str]], optional):
+            Explicit ordering of subgroup labels (hue order) within each primary
+            group. Must include all subgroup labels present in the data. If None,
+            the native order of subgroups in the dataset is used. Defaults to None.
+
+    Returns:
+        None
+    """
+    # Apply global font settings to current Axes
+    apply_font_style(plt.gca())
+
+    # Read file
+    df, pvals, meta = _load_chart_data(
+        file_path=file_path,
+        group_col_idx=group_col_idx,
+        subgroup_col_idx=subgroup_col_idx,
+        groups_order=groups_order,
+        subgroups_order=subgroups_order,
+    )
+    group_col_name = meta["group_col_name"]
+    subgroup_col_name = meta["subgroup_col_name"]
+    subgroup_idx = meta["subgroup_idx"]
+    groups = meta["groups"]
+    subgroups = meta["subgroups"]
+    group_sizes = meta["group_sizes"]
+
+    # Iterate twice: once for color, once for grayscale
+    for greyscale in [False, True]:
+        palette_contrast, color = set_color_style(greyscale=greyscale)
+        basic_color_palette = [color] * len(groups)
+        palette = palette_contrast if (subgroup_col_idx is not None) else basic_color_palette
+
+        # Create figure and axes with specified dimensions
+        fig, ax = make_fig_ax(
+            length_key=figure_length_key,
+            height_key=figure_height_key
+        )
+
+        ## Prepare pivot table for barchart
+        df_plot = df.copy()
+        pivot_tab = pd.crosstab(df_plot[group_col_name], df_plot[subgroup_col_name])
+        pivot_tab = pivot_tab.reset_index().melt(id_vars=group_col_name, var_name=subgroup_col_name, value_name='count')
+
+        bar_chart = sns.barplot(
+            data=pivot_tab,
+            x=group_col_name,
+            y='count',
+            hue=subgroup_col_name,
+            hue_order=subgroups,
+            ax=ax,
+            palette=palette,
+            edgecolor='black',
+            linewidth=1,
+            alpha=0.75,
+            width=0.5,
+            zorder=1
+        )
+
+        # Configure x-axis ticks and labels
+        n_groups = len(groups)
+        ax.set_xticks(np.arange(n_groups))
+        ax.set_xticklabels([str(g) for g in groups])
+        ax.set_xlim(-0.5, n_groups - 0.5)
+
+        # Apply axis label formatting and styling
+        _apply_axes_style(
+            ax=ax,
+            xlabel=group_col_name,
+            ylabel='Количество' if num_format_ru else 'Count'
+        )
+
+        # Format numeric tick labels with Russian-style decimals if requested
+        if num_format_ru:
+            _set_comma_decimal(ax)
+
+        # Remove any existing legends
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+            for lg in fig.legends:
+                lg.remove()
+            fig.legends.clear()
+
+        # Rebuild legend from swarmplot handles and labels
+        handles, labels = bar_chart.get_legend_handles_labels()
+        if "" in labels:
+            handles = handles[1:]
+            labels = labels[1:]
+        if handles and labels and len(handles) == len(labels):
+            fig.legend(
+                handles,
+                labels,
+                loc='lower left',
+                bbox_to_anchor=(0, 0),
+                ncol=len(labels),
+                frameon=False,
+                fontsize=10,
+                markerscale=1.5,
+                handlelength=1,
+                handletextpad=0.1,
+                borderaxespad=0.0,
+                borderpad=0.0,
+                columnspacing=0.5
+            )
+
+        # Draw all significance bars for p-values < alpha
+        _draw_significance_bars(
+            ax=ax,
+            pvals=pvals,
+            group_col_name=group_col_name,
+            subgroup_col_name=subgroup_col_name,
+            groups_order=groups,
+            subgroups_order=subgroups
+        )
+
+        # save figure
+        _save_chart(
+            fig=fig,
+            file_path=file_path,
+            figure_length_key=figure_length_key,
+            figure_height_key=figure_height_key,
+            greyscale=greyscale,
+        )
+
+    print("-" * 50)
+
+
 # ======================================================================================================================
 # MAIN FUNCTION
 # ======================================================================================================================
@@ -914,6 +1073,7 @@ def main():
     boxplot_builder(
         file_path=os.path.join(file_dir, file_name),
         values_col_idx=1,
+        group_col_idx = 2,
         subgroup_col_idx=3,
         figure_length_key='3/2',
         figure_height_key='3/2',
@@ -937,6 +1097,18 @@ def main():
 
     # TODO: #10A-D bar
     file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10C_ru.xlsx', 'fig10D_ru.xlsx']
+    file_name = 'fig10A_ru.xlsx'
+    barplot_builder(
+        file_path=os.path.join(file_dir, file_name),
+        group_col_idx=1,
+        subgroup_col_idx=2,
+        figure_length_key='1',
+        figure_height_key='1',
+        num_format_ru=True,
+        groups_order = None,
+        subgroups_order = None,
+    )
+
 
     # TODO: #10E-G boxplots | show_outliers=True,
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
