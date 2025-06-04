@@ -6,6 +6,7 @@ import pandas as pd
 import seaborn as sns
 
 from typing import Sequence, Literal, Tuple, Union, List, Optional, Dict, Any
+from fractions import Fraction
 from  matplotlib import collections
 from matplotlib.ticker import MaxNLocator
 from matplotlib.ticker import FuncFormatter
@@ -803,11 +804,12 @@ def boxplot_builder(
         )
 
         # Determine output file path (append _grays or _color)
+        postfix = f"{float(Fraction(figure_length_key))}x{float(Fraction(figure_height_key))}"
         base, _ = os.path.splitext(file_path)
         if greyscale:
-            save_file_path = f"{base}_grays.png"
+            save_file_path = f"{base}_{postfix}_grays.png"
         else:
-            save_file_path = f"{base}_color.png"
+            save_file_path = f"{base}_{postfix}_color.png"
 
         fig.savefig(save_file_path, dpi=300, transparent=False)
         plt.close(fig)
@@ -819,13 +821,38 @@ def boxplot_builder(
 # MAIN FUNCTION
 # ======================================================================================================================
 def main():
-    file_path = 'charts/svd_clustering/fig1_ru.xlsx'
+    file_dir = 'charts/svd_clustering'
+
+    file_name = 'fig1_ru.xlsx'
     boxplot_builder(
-        file_path,
+        file_path=os.path.join(file_dir, file_name),
+        values_col_idx=1,
         subgroup_col_idx=3,
-        subgroups_order=['ПЭ', 'СКД'],
-        show_outliers=False
+        figure_length_key='3/2',
+        figure_height_key='3/2',
+        num_format_ru=True,
+        show_outliers=False,
+        groups_order = ['АК', 'МК', 'ТК'],
+        subgroups_order = ['ПЭ', 'СКД'],
     )
+
+    # TODO: #2 circle or bar
+    file_name = 'fig2_ru.xlsx'
+
+    # TODO: #5 boxplots
+    file_names = ['fig5A_ru.xlsx', 'fig5B_ru.xlsx']
+
+    # TODO: #8 scatter + confidence interval
+    file_names = ['fig8A_ru.xlsx', 'fig8B_ru.xlsx', 'fig8C_ru.xlsx']
+
+    # TODO: #9 bar
+    file_name = 'fig9_ru.xlsx'
+
+    # TODO: #10A-D bar
+    file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10C_ru.xlsx', 'fig10D_ru.xlsx']
+
+    # TODO: #10E-G boxplots | show_outliers=True,
+    file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
 
 
 if __name__ == '__main__':
