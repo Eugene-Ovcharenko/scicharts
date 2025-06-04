@@ -12,6 +12,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mplcolors
 from matplotlib.patches import Ellipse
+from matplotlib.lines import Line2D
 from matplotlib.axes import Axes
 
 import warnings
@@ -1224,6 +1225,7 @@ def scatter_builder(
         )
 
         # Draw confidence ellipses for each cluster
+        ellipse_handles, ellipse_labels = [], []
         if group_col_idx is not None:
             for group in groups:
                 group_color = palette[groups.index(group)]
@@ -1231,6 +1233,20 @@ def scatter_builder(
                 x_cluster = df[values_col_x_idx].iloc[cluster_indices]
                 y_cluster = df[values_col_y_idx].iloc[cluster_indices]
                 _plot_confidence_ellipse(x_cluster, y_cluster, ax, n_std=1.96, edgecolor=group_color)
+
+            ellipse_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color='gray',
+                    linestyle="-",
+                    linewidth=1.2,
+                )
+            )
+            if num_format_ru:
+                ellipse_labels.append(f"95 % ДИ")
+            else:
+                ellipse_labels.append(f"95 % CI")
 
         # Apply axis label formatting and styling
         _apply_axes_style(
@@ -1260,6 +1276,8 @@ def scatter_builder(
         if "" in labels:
             handles = handles[1:]
             labels = labels[1:]
+        handles += ellipse_handles
+        labels  += ellipse_labels
         if handles and labels and len(handles) == len(labels):
             fig.legend(
                 handles,
