@@ -165,6 +165,104 @@ def apply_axes_style(
 # ======================================================================================================================
 # HELPER FUNCTIONS
 # ======================================================================================================================
+def _load_chart_data(
+    file_path: str,
+    values_col_idx: int = 1,
+    group_col_idx: int = 2,
+    subgroup_col_idx: Optional[int] = None,
+    groups_order: Optional[List[str]] = None,
+    subgroups_order: Optional[List[str]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """
+    Read Sheet 1 (main data) and Sheet 2 (pair-wise p-values) from an Excel
+    workbook and perform all integrity checks previously done inline.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        Cleaned main data table.
+    pvals : pandas.DataFrame
+        Table of p-values.
+    meta : dict
+        Auxiliary objects required by downstream plotting code.
+    """
+    print(f"Read file: {file_path}")
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    # ---------- Sheet 1 (main data) ----------
+    try:
+        df = pd.read_excel(file_path, sheet_name="Sheet1")
+        value_col_name = df.columns[values_col_idx]
+        group_col_name = df.columns[group_col_idx]
+
+        if subgroup_col_idx is not None:
+            subgroup_col_name = df.columns[subgroup_col_idx]
+            subgroup_idx = df[subgroup_col_name]
+            subgroups = subgroup_idx.unique().tolist()
+        else:
+            subgroup_col_name = None
+            subgroup_idx = None
+            subgroups = None
+
+        df[group_col_name] = df[group_col_name].astype(str)
+        groups = sorted(df[group_col_name].unique())
+        group_sizes = df.groupby(group_col_name).size()
+
+        if groups_order is not None:
+            missing = set(groups) - set(groups_order)
+            if missing:
+                raise ValueError(
+                    "groups_order is missing the following labels "
+                    f"detected in the data: {sorted(missing)}"
+                )
+            groups = groups_order
+
+        if subgroups_order is not None and subgroups is not None:
+            missing = set(subgroups) - set(subgroups_order)
+            if missing:
+                raise ValueError(
+                    "subgroups_order is missing the following labels "
+                    f"detected in the data: {sorted(missing)}"
+                )
+            subgroups = subgroups_order
+
+        groups_valid = [g for g in groups if group_sizes[g] >= 5]
+        if len(groups_valid) < 2:
+            raise ValueError(
+                "A minimum of two cohorts with at least 5 observations is required."
+            )
+
+        print("Data:\n", df.head(), "\n")
+
+    except Exception as e:
+        raise RuntimeError(f"Data loading error - Sheet1: {e}") from e
+
+    # ---------- Sheet 2 (p-values) ----------
+    try:
+        pvals = pd.read_excel(file_path, sheet_name=1)
+        pvals = pvals.dropna()
+        for col in pvals.columns:
+            if col != "p":
+                pvals[col] = pvals[col].astype(str)
+        print("p-values:\n", pvals, "\n")
+
+    except Exception as e:
+        raise RuntimeError(f"Data loading error - Sheet2: {e}") from e
+
+    meta: Dict[str, Any] = dict(
+        value_col_name=value_col_name,
+        group_col_name=group_col_name,
+        subgroup_col_name=subgroup_col_name,
+        subgroup_idx=subgroup_idx,
+        groups=groups,
+        subgroups=subgroups,
+        group_sizes=group_sizes,
+    )
+
+    return df, pvals, meta
+
+
 def auto_linebreak(
         title: str,
         maxlen: int = 30
@@ -616,73 +714,22 @@ def boxplot_builder(
     # Apply global font settings to current Axes
     apply_font_style(plt.gca())
 
-    # Load main data (Sheet1)
-    print(f"Read file: {file_path}")
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    try:
-        df = pd.read_excel(file_path, sheet_name='Sheet1')
-        value_col_name = df.columns[values_col_idx]
-        group_col_name = df.columns[group_col_idx]
-
-        if subgroup_col_idx is not None:
-            subgroup_col_name = df.columns[subgroup_col_idx]
-            subgroup_idx = df[subgroup_col_name]
-            subgroups = subgroup_idx.unique()
-            stripplot_dodge = True
-        else:
-            subgroup_col_name = None
-            subgroup_idx = None
-            subgroups = None
-            stripplot_dodge = False
-
-        df[group_col_name] = df[group_col_name].astype(str)
-        groups = sorted(df[group_col_name].unique())
-        group_sizes = df.groupby(group_col_name).size()
-
-        # groups and subgroups order
-        if groups_order is not None:
-            missing = set(groups) - set(groups_order)
-            if missing:
-                raise ValueError(
-                    "groups_order is missing the following labels "
-                    f"detected in the data: {sorted(missing)}"
-                )
-            groups = groups_order
-
-        if subgroups_order is not None:
-            missing = set(subgroups) - set(subgroups_order)
-            if missing:
-                raise ValueError(
-                    "subgroups_order is missing the following labels "
-                    f"detected in the data: {sorted(missing)}"
-                )
-            subgroups = subgroups_order
-
-        # Filter out groups with fewer than 5 observations
-        groups_valid = [g for g in groups if group_sizes[g] >= 5]
-        if len(groups_valid) < 2:
-            raise ValueError(
-                "A minimum of two cohorts with at least 5 observations is required."
-            )
-
-        print("Data:\n", df.head(), "\n")
-    except Exception as e:
-        print(f"Data loading error - Sheet1: {e}")
-        return
-
-    # Load p-values (Sheet2)
-    try:
-        pvals = pd.read_excel(file_path, sheet_name=1)
-        pvals = pvals.dropna()
-        for col in pvals.columns:
-            if col != 'p':
-                pvals[col] = pvals[col].astype(str)
-        print("p-values:", pvals, "\n")
-    except Exception as e:
-        print(f"Data loading error - Sheet2: {e}")
-        return
+    # Read file
+    df, pvals, meta = _load_chart_data(
+        file_path=file_path,
+        values_col_idx=values_col_idx,
+        group_col_idx=group_col_idx,
+        subgroup_col_idx=subgroup_col_idx,
+        groups_order=groups_order,
+        subgroups_order=subgroups_order,
+    )
+    value_col_name = meta["value_col_name"]
+    group_col_name = meta["group_col_name"]
+    subgroup_col_name = meta["subgroup_col_name"]
+    subgroup_idx = meta["subgroup_idx"]
+    groups = meta["groups"]
+    subgroups = meta["subgroups"]
+    group_sizes = meta["group_sizes"]
 
     # Iterate twice: once for color, once for grayscale
     for greyscale in [False, True]:
@@ -730,6 +777,10 @@ def boxplot_builder(
         )
 
         # Draw swarmplot (dots) over boxplot
+        if subgroup_col_idx is not None:
+            flag_dodge = True
+        else:
+            flag_dodge = False
         swarm = sns.swarmplot(
             data=df,
             x=df.columns[group_col_idx],
@@ -738,7 +789,7 @@ def boxplot_builder(
             order=groups,
             hue_order=subgroups,
             marker='o',
-            dodge=stripplot_dodge,
+            dodge=flag_dodge,
             palette=palette,
             legend=True,
             size=3,
