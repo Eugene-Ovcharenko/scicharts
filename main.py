@@ -1038,6 +1038,7 @@ def barplot_builder_pivot(
         num_format_ru: bool = True,
         groups_order: Optional[List[str]] = None,
         subgroups_order: Optional[List[str]] = None,
+        custom_y_title: Optional[str] = None
 ) -> None:
     """Build and save barplots (color and grayscale) from Excel data with significance bars.
 
@@ -1074,6 +1075,9 @@ def barplot_builder_pivot(
             Explicit ordering of subgroup labels (hue order) within each primary
             group. Must include all subgroup labels present in the data. If None,
             the native order of subgroups in the dataset is used. Defaults to None.
+                custom_y_title : str, optional
+        If non-empty, overrides the automatic 'Count' / 'Количество' label for
+        the Y-axis.  Defaults to "" (use automatic title).
 
     Returns:
         None
@@ -1135,10 +1139,15 @@ def barplot_builder_pivot(
         ax.set_xlim(-0.5, n_groups - 0.5)
 
         # Apply axis label formatting and styling
+        y_label = (
+            custom_y_title
+            if custom_y_title
+            else ("Количество" if num_format_ru else "Count")
+        )
         _apply_axes_style(
             ax=ax,
             xlabel=group_col_name,
-            ylabel='Количество' if num_format_ru else 'Count',
+            ylabel=y_label,
             length_key=figure_length_key,
             height_key=figure_height_key
         )
@@ -1206,7 +1215,48 @@ def barplot_builder_values(
         figure_height_key: Literal['1', '3/2', '2', '3'] = '3/2',
         num_format_ru: bool = True
 ) -> None:
+    """Build and save a horizontal value-barplot (colour + grayscale).
 
+    The function reads a single numeric column (*values*) and, optionally,
+    a *names* column from **Sheet 1** of an Excel workbook, draws a
+    horizontal bar-chart (one bar per row), and stores both colour and
+    greyscale versions of the figure using the project-wide naming
+    convention.
+
+    Two passes are performed:
+
+    * **Colour pass** – bars are filled with the primary project colour.
+    * **Greyscale pass** – the same bars are filled with dim gray.
+
+    Tick labels on the *x*-axis can be formatted with Russian commas,
+    while the *y*-axis shows the provided names verbatim.
+
+    Args:
+        file_path (str):
+            Absolute or relative path to the Excel workbook that contains the
+            data on *Sheet 1*.  The output PNG is saved next to this file.
+        values_col_idx (int, optional):
+            Zero-based index of the numeric column on *Sheet 1* whose values
+            form the bar lengths.  Defaults to ``1`` (second column).
+        names_col_idx (int | None, optional):
+            Zero-based index of the column on *Sheet 1* that supplies the bar
+            labels (*y*-axis).  If *None*, the function uses the column header
+            of *values_col_idx*.  Defaults to *None*.
+        figure_length_key (Literal['1','3/2','2','3'], optional):
+            Physical figure width key: ``'1'→56 mm``, ``'3/2'→84 mm``,
+            ``'2'→112 mm``, ``'3'→168 mm``.  Defaults to ``'3'``.
+        figure_height_key (Literal['1','3/2','2','3'], optional):
+            Physical figure height key using the same mapping as
+            *figure_length_key*.  Defaults to ``'3/2'``.
+        num_format_ru (bool, optional):
+            If *True*, numeric *x*-axis tick labels are formatted with a comma
+            as the decimal separator.  Defaults to *True*.
+
+    Returns:
+        None
+            The function saves the figure(s) to disk and produces no direct
+            return value.
+    """
     # Apply global font settings to current Axes
     apply_font_style(plt.gca())
 
@@ -1285,6 +1335,47 @@ def scatter_builder(
         figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
         num_format_ru: bool = True,
 ) -> None:
+    """Build and save a scatter-plot with 95 % confidence ellipses.
+
+        The function reads *Sheet 1* of an Excel workbook, draws a scatter plot
+        of two numeric columns, optionally colours/marks points by a categorical
+        column (*group*), overlays bivariate 95 % confidence ellipses for each
+        group, and saves both colour and greyscale versions of the figure.
+
+        Args:
+            file_path (str):
+                Path to the Excel workbook containing the data.  The output PNG
+                files are written to the same directory.
+            values_col_x_idx (int, optional):
+                Zero-based column index of the *x*-values on *Sheet 1*.
+                Defaults to ``1`` (second column).
+            values_col_y_idx (int, optional):
+                Zero-based column index of the *y*-values on *Sheet 1*.
+                Defaults to ``2`` (third column).
+            group_col_idx (int | None, optional):
+                Zero-based column index of the categorical grouping variable that
+                defines colour/marker and separate confidence ellipses.
+                If *None* all points are treated as a single cluster.
+            figure_length_key (Literal['1','3/2','2','3'], optional):
+                Physical figure width key: ``'1'→56 mm``, ``'3/2'→84 mm``,
+                ``'2'→112 mm``, ``'3'→168 mm``.  Defaults to ``'1'``.
+            figure_height_key (Literal['1','3/2','2','3'], optional):
+                Physical figure height key (same mapping as *length_key*).
+                Defaults to ``'1'``.
+            num_format_ru (bool, optional):
+                If *True*, numeric tick labels use a comma as the decimal
+                separator.  Defaults to *True*.
+
+        Returns:
+            None
+                Figures are saved to disk; the function does not return a value.
+
+        Raises:
+            FileNotFoundError:
+                If *file_path* does not exist.
+            RuntimeError:
+                If the Excel sheet cannot be read.
+        """
     # Apply global font settings to current Axes
     apply_font_style(plt.gca())
 
@@ -1452,8 +1543,9 @@ def main():
         figure_length_key='2',
         figure_height_key='1',
         num_format_ru="_eng" not in file_name.lower(),
-        groups_order=None,
+        groups_order=['0%', '<25%', '25-50%', '50-75%', '>75%'],
         subgroups_order=None,
+        custom_y_title='Количество биопротезов, шт.'
     )
 
     file_names = ['fig5A_ru.xlsx', 'fig5B_ru.xlsx']
@@ -1500,6 +1592,7 @@ def main():
             num_format_ru="_eng" not in file_name.lower(),
             groups_order=None,
             subgroups_order=['+', '-'],
+            custom_y_title='Количество биопротезов, шт.'
         )
 
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
