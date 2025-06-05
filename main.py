@@ -7,7 +7,7 @@ import seaborn as sns
 
 from typing import Sequence, Literal, Tuple, Union, List, Optional, Dict, Any
 from fractions import Fraction
-from  matplotlib import collections
+from matplotlib import collections
 from matplotlib.ticker import MaxNLocator
 from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mplcolors
@@ -16,18 +16,20 @@ from matplotlib.lines import Line2D
 from matplotlib.axes import Axes
 
 import warnings
+
 warnings.filterwarnings("ignore")
+
 
 # ======================================================================================================================
 # STYLE FUNCTIONS
 # ======================================================================================================================
 def make_fig_ax(
-    length_key: Literal['1', '3/2', '2', '3'],
-    height_key: Literal['1', '3/2', '2', '3'],
-    margins_top: Union[float, int] = 8,
-    margins_bottom: Union[float, int] = 14,
-    margins_left: Union[float, int] = 16,
-    margins_right: Union[float, int] = 1
+        length_key: Literal['1', '3/2', '2', '3'],
+        height_key: Literal['1', '3/2', '2', '3'],
+        margins_top: Union[float, int] = 8,
+        margins_bottom: Union[float, int] = 14,
+        margins_left: Union[float, int] = 16,
+        margins_right: Union[float, int] = 1
 ) -> Tuple[plt.Figure, plt.Axes]:
     """Create a matplotlib Figure and Axes with dimensions based on specified keys.
 
@@ -129,30 +131,48 @@ def _apply_axes_style(
     ax: plt.Axes,
     xlabel: str,
     ylabel: str,
+    length_key: Literal["1", "3/2", "2", "3"] = "1",
+    height_key: Literal["1", "3/2", "2", "3"] = "1",
     autoscale: Literal["none", "x", "y", "both"] = "y",
     force_zero: bool = True,
 ) -> None:
     """
-    Apply labelling, spine trimming, and optional axis auto-scaling.
+    Label axes, break long titles automatically, optionally rescale the
+    chosen axis, and hide the top/right spines.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
         Target axes.
     xlabel, ylabel : str
-        Axis-label strings; long labels are line-broken automatically.
+        Raw label strings.  Long labels are wrapped automatically.
+    length_key, height_key : {"1", "3/2", "2", "3"}, optional
+        Physical figure size keys – the same that are passed to
+        ``make_fig_ax``.  They control the default limits used for automatic
+        line breaking.
     autoscale : {"none", "x", "y", "both"}, default "y"
-        Which axis should be passed to `_autoscale_axis`.  Use "none"
-        to keep both axes unchanged.
+        Which axis to feed into `_autoscale_axis`.
     force_zero : bool, default True
         Forwarded to `_autoscale_axis`; if False the lower bound is not
-        clamped to 0.
+        clamped to zero.
     """
-    # ── automatic line breaking for labels ───────────────────────────
-    bbox = ax.get_window_extent()
-    x_max = max(int(bbox.width / 20), 1)
-    y_max = max(int(bbox.height / 20), 1)
 
+    # ── default limits for automatic line breaking (chars) ──────────
+    text_linebreak_limits: Dict[str, Dict[str, int]] = {
+        "1":    dict(x_max=20, y_max=20),
+        "3/2":  dict(x_max=30, y_max=30),
+        "2":    dict(x_max=45, y_max=45),
+        "3":    dict(x_max=60, y_max=60),
+    }
+
+    if length_key not in text_linebreak_limits or height_key not in text_linebreak_limits:
+        raise ValueError("length_key and height_key must be one of '1', '3/2', '2', '3'")
+
+    # pick limits based on the physical size keys
+    x_max = text_linebreak_limits[length_key]["x_max"]
+    y_max = text_linebreak_limits[height_key]["y_max"]
+
+    # ── apply wrapped labels ─────────────────────────────────────────
     ax.set_xlabel(_auto_linebreak(xlabel, maxlen=x_max), labelpad=0, linespacing=0.8)
     ax.set_ylabel(_auto_linebreak(ylabel, maxlen=y_max), labelpad=0, linespacing=0.8)
 
@@ -169,12 +189,12 @@ def _apply_axes_style(
 # HELPER FUNCTIONS
 # ======================================================================================================================
 def _load_chart_data(
-    file_path: str,
-    values_col_idx: int = 1,
-    group_col_idx: int = 2,
-    subgroup_col_idx: Optional[int] = None,
-    groups_order: Optional[List[str]] = None,
-    subgroups_order: Optional[List[str]] = None,
+        file_path: str,
+        values_col_idx: int = 1,
+        group_col_idx: int = 2,
+        subgroup_col_idx: Optional[int] = None,
+        groups_order: Optional[List[str]] = None,
+        subgroups_order: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
     Read Sheet 1 (main data) and Sheet 2 (pair-wise p-values) from an Excel
@@ -251,7 +271,8 @@ def _load_chart_data(
         print("p-values:\n", pvals, "\n")
 
     except Exception as e:
-        raise RuntimeError(f"Data loading error - Sheet2: {e}") from e
+        print(f"Warning: failed to load Sheet2: {e}")
+        pvals = None
 
     meta: Dict[str, Any] = dict(
         value_col_name=value_col_name,
@@ -267,13 +288,13 @@ def _load_chart_data(
 
 
 def _save_chart(
-    fig: plt.Figure,
-    file_path: str,
-    figure_length_key: str,
-    figure_height_key: str,
-    greyscale: bool,
-    dpi: int = 300,
-    transparent: bool = False,
+        fig: plt.Figure,
+        file_path: str,
+        figure_length_key: str,
+        figure_height_key: str,
+        greyscale: bool,
+        dpi: int = 300,
+        transparent: bool = False,
 ) -> None:
     """
     Save a Matplotlib figure to disk using the naming convention previously
@@ -329,13 +350,13 @@ def _auto_linebreak(
 
 
 def _draw_significance_bar_abs(
-    ax: plt.Axes,
-    group_locs: Tuple[float, float],
-    p_value: Union[float, int],
-    y_mm: float,
-    bar_height_mm: float = 1.2,
-    alpha: float = 0.05,
-    gap_px: int = 2
+        ax: plt.Axes,
+        group_locs: Tuple[float, float],
+        p_value: Union[float, int],
+        y_mm: float,
+        bar_height_mm: float = 1.2,
+        alpha: float = 0.05,
+        gap_px: int = 2
 ) -> None:
     """Draw a significance bar between two groups on a Matplotlib Axes.
 
@@ -412,18 +433,18 @@ def _draw_significance_bar_abs(
 
 
 def _draw_significance_bars(
-    ax: plt.Axes,
-    pvals: pd.DataFrame,
-    group_col_name: str,
-    subgroup_col_name: Optional[str],
-    above_mm: float = 2.0,
-    bar_height_mm: float = 1.2,
-    mm_step: float = 2.5,
-    alpha: float = 0.05,
-    box_plot_width_fraction: float = 0.8,
-    groups_order: Optional[List[str]] = None,
-    subgroups_order: Optional[List[str]] = None,
-    y_autoleveling: bool = True
+        ax: plt.Axes,
+        pvals: pd.DataFrame,
+        group_col_name: str,
+        subgroup_col_name: Optional[str],
+        above_mm: float = 2.0,
+        bar_height_mm: float = 1.2,
+        mm_step: float = 2.5,
+        alpha: float = 0.05,
+        box_plot_width_fraction: float = 0.8,
+        groups_order: Optional[List[str]] = None,
+        subgroups_order: Optional[List[str]] = None,
+        y_autoleveling: bool = True
 ) -> None:
     """Draw multiple significance bars on a Matplotlib Axes.
 
@@ -484,6 +505,9 @@ def _draw_significance_bars(
     mm_first_bar_global = y_frac_top * height_mm + above_mm
 
     # ---------- filter significant comparisons ----------
+    if pvals is None:
+        return
+
     pvals_to_draw = pvals[pvals["p"] < alpha].copy()
     if pvals_to_draw.empty:
         return
@@ -544,7 +568,8 @@ def _draw_significance_bars(
 
         if len(x_coords) != 2 or abs(x_coords[0] - x_coords[1]) < 1e-6:
             continue
-        bars_to_draw.append({"x1": x_coords[0], "x2": x_coords[1], "width": abs(x_coords[1] - x_coords[0]), "p_val": p_val})
+        bars_to_draw.append(
+            {"x1": x_coords[0], "x2": x_coords[1], "width": abs(x_coords[1] - x_coords[0]), "p_val": p_val})
 
     bars_to_draw.sort(key=lambda d: d["width"])
 
@@ -588,11 +613,11 @@ def _draw_significance_bars(
 
 
 def _autoscale_axis(
-    ax: plt.Axes,
-    mode: Literal["x", "y", "both"] = "y",
-    min_ticks: int = 2,
-    max_ticks: int = 8,
-    force_zero: bool = True,              # ← new switch
+        ax: plt.Axes,
+        mode: Literal["x", "y", "both"] = "y",
+        min_ticks: int = 2,
+        max_ticks: int = 8,
+        force_zero: bool = True,  # ← new switch
 ) -> None:
     """
     Autoscale the selected axis (or both) so that tick marks fall on “nice”
@@ -630,7 +655,7 @@ def _autoscale_axis(
             set_lim(left=0) if which == "x" else set_lim(bottom=0)
 
         vmin, vmax = get_lim()
-        if vmax <= vmin:           # degenerate span guard
+        if vmax <= vmin:  # degenerate span guard
             vmax = vmin + 1
 
         # Use zero as the base if required, otherwise honour vmin
@@ -663,6 +688,17 @@ def _autoscale_axis(
 
         set_ticks(ticks)
         set_labels(labels)
+        # If the axis signature is four-digit, reduce the typeface and pad
+        max_len = max(len(lbl) for lbl in labels)
+        if max_len >= 4:
+            labelsize = max(8, plt.rcParams["font.size"] - 2)
+            pad = 1
+        else:
+            labelsize = plt.rcParams["font.size"]
+            pad = 4
+
+        axis = ax.yaxis if which == "y" else ax.xaxis
+        axis.set_tick_params(labelsize=labelsize, pad=pad)
         set_autoscale(False)
 
     if mode == "both":
@@ -675,9 +711,9 @@ def _autoscale_axis(
 
 
 def _set_comma_decimal(
-    ax: plt.Axes,
-    ndigits: int = 3,
-    axes: str = "y",
+        ax: plt.Axes,
+        ndigits: int = 3,
+        axes: str = "y",
 ) -> None:
     """
     Replace the decimal point by a comma on numeric axes.
@@ -698,9 +734,9 @@ def _set_comma_decimal(
         return s.replace(".", ",")
 
     def _axis_is_numeric(axis) -> bool:
-        axis.figure.canvas.draw_idle()           # ensure labels exist
+        axis.figure.canvas.draw_idle()  # ensure labels exist
         labels = [t.get_text() for t in axis.get_ticklabels()]
-        locs   = axis.get_ticklocs()
+        locs = axis.get_ticklocs()
 
         for lbl, loc in zip(labels, locs):
             if not lbl:
@@ -708,8 +744,8 @@ def _set_comma_decimal(
             try:
                 val = float(lbl.replace(",", "."))
             except ValueError:
-                return False                     # non-numeric label → categorical
-            if not math.isclose(val, loc):       # mismatch text vs. coordinate
+                return False  # non-numeric label → categorical
+            if not math.isclose(val, loc):  # mismatch text vs. coordinate
                 return False
         return True
 
@@ -797,16 +833,16 @@ def _plot_confidence_ellipse(
 # PLOTTING FUNCTIONS
 # ======================================================================================================================
 def boxplot_builder(
-    file_path: str,
-    values_col_idx: int = 1,
-    group_col_idx: int = 2,
-    subgroup_col_idx: Optional[int] = None,
-    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
-    figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
-    num_format_ru: bool = True,
-    show_outliers: bool = True,
-    groups_order: Optional[List[str]] = None,
-    subgroups_order: Optional[List[str]] = None,
+        file_path: str,
+        values_col_idx: int = 1,
+        group_col_idx: int = 2,
+        subgroup_col_idx: Optional[int] = None,
+        figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+        figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+        num_format_ru: bool = True,
+        show_outliers: bool = True,
+        groups_order: Optional[List[str]] = None,
+        subgroups_order: Optional[List[str]] = None,
 ) -> None:
     """
     Build and save boxplots (colour and grayscale) from Excel data, with
@@ -872,9 +908,9 @@ def boxplot_builder(
 
         # Prepare data for boxplot: set values to NaN for small groups
         df_box = df.copy()
-        for g, size in group_sizes.items():
-            if size < 5:
-                df_box.loc[df_box[group_col_name] == g, value_col_name] = np.nan
+        # for g, size in group_sizes.items():
+        #     if size < 5:
+        #         df_box.loc[df_box[group_col_name] == g, value_col_name] = np.nan
 
         # Draw boxplot (transparent fill, black edges)
         sns.boxplot(
@@ -885,8 +921,8 @@ def boxplot_builder(
             hue=subgroup_idx,
             order=groups,
             hue_order=subgroups,
-            whis= 1.5 if show_outliers else 9,
-            gap = 0.1,
+            whis=1.5 if show_outliers else 9,
+            gap=0.1,
             boxprops=dict(facecolor='none', edgecolor='black'),
             whiskerprops=dict(color='black', linestyle='-', linewidth=1.25),
             capprops=dict(color='black'),
@@ -935,7 +971,9 @@ def boxplot_builder(
         _apply_axes_style(
             ax=ax,
             xlabel=group_col_name,
-            ylabel=value_col_name
+            ylabel=value_col_name,
+            length_key=figure_length_key,
+            height_key=figure_height_key
         )
 
         # Format numeric tick labels with Russian-style decimals if requested
@@ -994,14 +1032,14 @@ def boxplot_builder(
 
 
 def barplot_builder(
-    file_path: str,
-    group_col_idx: int = 1,
-    subgroup_col_idx: Optional[int] = None,
-    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
-    figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
-    num_format_ru: bool = True,
-    groups_order: Optional[List[str]] = None,
-    subgroups_order: Optional[List[str]] = None,
+        file_path: str,
+        group_col_idx: int = 1,
+        subgroup_col_idx: Optional[int] = None,
+        figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+        figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+        num_format_ru: bool = True,
+        groups_order: Optional[List[str]] = None,
+        subgroups_order: Optional[List[str]] = None,
 ) -> None:
     """Build and save barplots (color and grayscale) from Excel data with significance bars.
 
@@ -1102,7 +1140,9 @@ def barplot_builder(
         _apply_axes_style(
             ax=ax,
             xlabel=group_col_name,
-            ylabel='Количество' if num_format_ru else 'Count'
+            ylabel='Количество' if num_format_ru else 'Count',
+            length_key=figure_length_key,
+            height_key=figure_height_key
         )
 
         # Format numeric tick labels with Russian-style decimals if requested
@@ -1161,15 +1201,14 @@ def barplot_builder(
 
 
 def scatter_builder(
-    file_path: str,
-    values_col_x_idx: int = 1,
-    values_col_y_idx: int = 2,
-    group_col_idx: Optional[int] = None,
-    figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
-    figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
-    num_format_ru: bool = True,
+        file_path: str,
+        values_col_x_idx: int = 1,
+        values_col_y_idx: int = 2,
+        group_col_idx: Optional[int] = None,
+        figure_length_key: Literal['1', '3/2', '2', '3'] = '1',
+        figure_height_key: Literal['1', '3/2', '2', '3'] = '1',
+        num_format_ru: bool = True,
 ) -> None:
-
     # Apply global font settings to current Axes
     apply_font_style(plt.gca())
 
@@ -1254,7 +1293,9 @@ def scatter_builder(
             xlabel=values_col_x_idx,
             ylabel=values_col_y_idx,
             autoscale='both',
-            force_zero=False
+            force_zero=False,
+            length_key=figure_length_key,
+            height_key=figure_height_key
         )
 
         # Format numeric tick labels with Russian-style decimals if requested
@@ -1277,7 +1318,7 @@ def scatter_builder(
             handles = handles[1:]
             labels = labels[1:]
         handles += ellipse_handles
-        labels  += ellipse_labels
+        labels += ellipse_labels
         if handles and labels and len(handles) == len(labels):
             fig.legend(
                 handles,
@@ -1317,34 +1358,52 @@ def main():
     boxplot_builder(
         file_path=os.path.join(file_dir, file_name),
         values_col_idx=1,
-        group_col_idx = 2,
+        group_col_idx=2,
         subgroup_col_idx=3,
         figure_length_key='3/2',
         figure_height_key='3/2',
-        num_format_ru=True,
+        num_format_ru="_eng" not in file_name.lower(),
         show_outliers=False,
-        groups_order = ['АК', 'МК', 'ТК'],
-        subgroups_order = ['ПЭ', 'СКД'],
+        groups_order=['АК', 'МК', 'ТК'],
+        subgroups_order=['ПЭ', 'СКД'],
     )
 
-    # TODO: #2 circle or bar
     file_name = 'fig2_ru.xlsx'
-
-    # TODO: #5 boxplots
-    file_names = ['fig5A_ru.xlsx', 'fig5B_ru.xlsx']
-
-    # TODO: #8 scatter + confidence interval
-    file_names = ['fig8A_ru.xlsx', 'fig8B_ru.xlsx', 'fig8C_ru.xlsx']
-    file_name = 'fig8A_ru.xlsx'
-    scatter_builder(
+    barplot_builder(
         file_path=os.path.join(file_dir, file_name),
-        values_col_x_idx=1,
-        values_col_y_idx=2,
-        group_col_idx=0,
-        figure_length_key='1',
+        group_col_idx=1,
+        subgroup_col_idx=2,
+        figure_length_key='2',
         figure_height_key='1',
-        num_format_ru=True
+        num_format_ru="_eng" not in file_name.lower(),
+        groups_order=None,
+        subgroups_order=None,
     )
+
+    file_names = ['fig5A_ru.xlsx', 'fig5B_ru.xlsx']
+    for file_name in file_names:
+        boxplot_builder(
+            file_path=os.path.join(file_dir, file_name),
+            values_col_idx=1,
+            group_col_idx=2,
+            subgroup_col_idx=None,
+            figure_length_key='3/2',
+            figure_height_key='3/2',
+            num_format_ru="_eng" not in file_name.lower(),
+            show_outliers=False,
+        )
+
+    file_names = ['fig8A_ru.xlsx', 'fig8B_ru.xlsx', 'fig8C_ru.xlsx']
+    for file_name in file_names:
+        scatter_builder(
+            file_path=os.path.join(file_dir, file_name),
+            values_col_x_idx=1,
+            values_col_y_idx=2,
+            group_col_idx=0,
+            figure_length_key='1',
+            figure_height_key='1',
+            num_format_ru="_eng" not in file_name.lower()
+        )
 
     # TODO: #9 bar
     file_name = 'fig9_ru.xlsx'
@@ -1358,11 +1417,10 @@ def main():
         subgroup_col_idx=2,
         figure_length_key='1',
         figure_height_key='1',
-        num_format_ru=True,
-        groups_order = None,
-        subgroups_order = None,
+        num_format_ru="_eng" not in file_name.lower(),
+        groups_order=None,
+        subgroups_order=None,
     )
-
 
     # TODO: #10E-G boxplots | show_outliers=True,
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
@@ -1371,6 +1429,6 @@ def main():
 
     # TODO: p-values mode
 
+
 if __name__ == '__main__':
     main()
-
