@@ -1489,7 +1489,7 @@ def main():
         num_format_ru="_eng" not in file_name.lower()
     )
 
-    file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10D_ru.xlsx']
+    file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10C_ru.xlsx', 'fig10D_ru.xlsx']
     for file_name in file_names:
         barplot_builder_pivot(
             file_path=os.path.join(file_dir, file_name),
@@ -1501,19 +1501,6 @@ def main():
             groups_order=None,
             subgroups_order=['+', '-'],
         )
-
-        file_name = 'fig10C_ru.xlsx'
-        barplot_builder_pivot(
-            file_path=os.path.join(file_dir, file_name),
-            group_col_idx=1,
-            subgroup_col_idx=2,
-            figure_length_key='3/2',
-            figure_height_key='1',
-            num_format_ru="_eng" not in file_name.lower(),
-            groups_order=None,
-            subgroups_order=['0%', '<25%', '25-50%', '50-75%', '>75%'],
-        )
-
 
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
     for file_name in file_names:
@@ -1531,8 +1518,6 @@ def main():
         )
 
     # TODO: grayscale contrast problem
-
-    # TODO: gradient pallete
 
     # TODO: legend on center
 
