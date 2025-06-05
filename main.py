@@ -159,7 +159,7 @@ def _apply_axes_style(
 
     # ── default limits for automatic line breaking (chars) ──────────
     text_linebreak_limits: Dict[str, Dict[str, int]] = {
-        "1":    dict(x_max=20, y_max=20),
+        "1":    dict(x_max=25, y_max=25),
         "3/2":  dict(x_max=30, y_max=30),
         "2":    dict(x_max=45, y_max=45),
         "3":    dict(x_max=60, y_max=60),
@@ -174,7 +174,7 @@ def _apply_axes_style(
 
     # ── apply wrapped labels ─────────────────────────────────────────
     ax.set_xlabel(_auto_linebreak(xlabel, maxlen=x_max), labelpad=0, linespacing=0.8)
-    ax.set_ylabel(_auto_linebreak(ylabel, maxlen=y_max), labelpad=0, linespacing=0.8)
+    ax.set_ylabel(_auto_linebreak(ylabel, maxlen=y_max), labelpad=-1, linespacing=0.8)
 
     # ── optional axis auto-scaling ───────────────────────────────────
     if autoscale != "none":
@@ -251,10 +251,8 @@ def _load_chart_data(
             subgroups = subgroups_order
 
         groups_valid = [g for g in groups if group_sizes[g] >= 5]
-        if len(groups_valid) < 2:
-            raise ValueError(
-                "A minimum of two cohorts with at least 5 observations is required."
-            )
+        # if len(groups_valid) < 2:
+        #     raise Warning(f"A minimum of two cohorts with at least 5 observations is required.")
 
         print("Data:\n", df.head(), "\n")
 
@@ -1031,7 +1029,7 @@ def boxplot_builder(
     print("-" * 50)
 
 
-def barplot_builder(
+def barplot_builder_pivot(
         file_path: str,
         group_col_idx: int = 1,
         subgroup_col_idx: Optional[int] = None,
@@ -1187,6 +1185,84 @@ def barplot_builder(
             groups_order=groups,
             subgroups_order=subgroups
         )
+
+        # save figure
+        _save_chart(
+            fig=fig,
+            file_path=file_path,
+            figure_length_key=figure_length_key,
+            figure_height_key=figure_height_key,
+            greyscale=greyscale,
+        )
+
+    print("-" * 50)
+
+
+def barplot_builder_values(
+        file_path: str,
+        values_col_idx: int = 1,
+        names_col_idx: Optional[int] = None,
+        figure_length_key: Literal['1', '3/2', '2', '3'] = '3',
+        figure_height_key: Literal['1', '3/2', '2', '3'] = '3/2',
+        num_format_ru: bool = True
+) -> None:
+
+    # Apply global font settings to current Axes
+    apply_font_style(plt.gca())
+
+    # Read file
+    df, pvals, meta = _load_chart_data(
+        file_path=file_path,
+        values_col_idx=values_col_idx,
+        group_col_idx=names_col_idx
+    )
+    value_col_name = meta["value_col_name"]
+    names_col_idx = meta["group_col_name"]
+    names = meta["groups"]
+
+    # Iterate twice: once for color, once for grayscale
+    for greyscale in [False, True]:
+        _ , color = set_color_style(greyscale=greyscale)
+        palette = [color] * len(names)
+
+        # Create figure and axes with specified dimensions
+        fig, ax = make_fig_ax(
+            length_key=figure_length_key,
+            height_key=figure_height_key,
+            margins_left = 100,
+        )
+
+        bar_chart = sns.barplot(
+            data=df,
+            ax=ax,
+            x=value_col_name,
+            y= names,
+            palette=palette,
+            edgecolor='black',
+            linewidth=1,
+            alpha=0.75,
+            width=0.5,
+            zorder=1
+        )
+
+        # Configure x-axis ticks and labels
+        n_groups = len(names)
+        ax.set_yticks(np.arange(n_groups))
+        ax.set_yticklabels([str(n) for n in names])
+
+        # Apply axis label formatting and styling
+        _apply_axes_style(
+            ax=ax,
+            xlabel=value_col_name,
+            ylabel='',
+            autoscale="x",
+            length_key=figure_length_key,
+            height_key=figure_height_key
+        )
+
+        # Format numeric tick labels with Russian-style decimals if requested
+        if num_format_ru:
+            _set_comma_decimal(ax=ax, axes='x')
 
         # save figure
         _save_chart(
@@ -1369,7 +1445,7 @@ def main():
     )
 
     file_name = 'fig2_ru.xlsx'
-    barplot_builder(
+    barplot_builder_pivot(
         file_path=os.path.join(file_dir, file_name),
         group_col_idx=1,
         subgroup_col_idx=2,
@@ -1405,29 +1481,47 @@ def main():
             num_format_ru="_eng" not in file_name.lower()
         )
 
-    # TODO: #9 bar
     file_name = 'fig9_ru.xlsx'
-
-    # TODO: #10A-D bar
-    file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10C_ru.xlsx', 'fig10D_ru.xlsx']
-    file_name = 'fig10A_ru.xlsx'
-    barplot_builder(
+    barplot_builder_values(
         file_path=os.path.join(file_dir, file_name),
-        group_col_idx=1,
-        subgroup_col_idx=2,
-        figure_length_key='1',
-        figure_height_key='1',
-        num_format_ru="_eng" not in file_name.lower(),
-        groups_order=None,
-        subgroups_order=None,
+        names_col_idx=0,
+        values_col_idx=1,
+        num_format_ru="_eng" not in file_name.lower()
     )
 
-    # TODO: #10E-G boxplots | show_outliers=True,
+    file_names = ['fig10A_ru.xlsx', 'fig10B_ru.xlsx', 'fig10C_ru.xlsx', 'fig10D_ru.xlsx']
+    for file_name in file_names:
+        barplot_builder_pivot(
+            file_path=os.path.join(file_dir, file_name),
+            group_col_idx=1,
+            subgroup_col_idx=2,
+            figure_length_key='3/2',
+            figure_height_key='1',
+            num_format_ru="_eng" not in file_name.lower(),
+            groups_order=None,
+            subgroups_order=None,
+        )
+
     file_names = ['fig10E_ru.xlsx', 'fig10F_ru.xlsx', 'fig10G_ru.xlsx']
+    for file_name in file_names:
+        boxplot_builder(
+            file_path=os.path.join(file_dir, file_name),
+            values_col_idx=1,
+            group_col_idx=2,
+            subgroup_col_idx=None,
+            figure_length_key='1',
+            figure_height_key='1',
+            num_format_ru="_eng" not in file_name.lower(),
+            show_outliers=True,
+            groups_order=None,
+            subgroups_order=None
+        )
 
     # TODO: grayscale contrast problem
 
     # TODO: p-values mode
+
+    # TODO: legend on center
 
 
 if __name__ == '__main__':
